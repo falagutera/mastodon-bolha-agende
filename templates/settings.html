@@ -1,0 +1,18 @@
+{{template "head" .}}
+<h1>{{.T.settings_title}}</h1>
+<form method="post" action="/settings" class="compose">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>{{.T.timezone}} <input type="text" name="timezone" value="{{.Settings.Timezone}}" required maxlength="64"></label>
+  <label>{{.T.default_visibility}}
+    <select name="visibility">
+      <option value="public"{{if eq .Settings.Visibility "public"}} selected{{end}}>{{.T.vis_public}}</option>
+      <option value="unlisted"{{if eq .Settings.Visibility "unlisted"}} selected{{end}}>{{.T.vis_unlisted}}</option>
+      <option value="private"{{if eq .Settings.Visibility "private"}} selected{{end}}>{{.T.vis_private}}</option>
+      <option value="direct"{{if eq .Settings.Visibility "direct"}} selected{{end}}>{{.T.vis_direct}}</option>
+    </select>
+  </label>
+  <label>{{.T.default_language}} <input type="text" name="language" value="{{.Settings.Language}}" maxlength="3" required pattern="[a-z]{2,3}"></label>
+{{if .Markdown}}  <label class="check"><input type="checkbox" name="markdown"{{if eq .Settings.ContentType "text/markdown"}} checked{{end}}> {{.T.default_markdown}}</label>
+{{end}}  <p><button type="submit" class="button">{{.T.save}}</button></p>
+</form>
+{{template "foot" .}}

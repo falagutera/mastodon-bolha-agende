@@ -1,0 +1,25 @@
+{{template "head" .}}
+<h1>{{.T.post_title}}</h1>
+<p class="when">{{.Post.When}} ({{.Settings.Timezone}})</p>
+{{if .Post.CW}}<p><strong>{{.Post.CW}}</strong></p>{{end}}
+<p class="text full">{{.Post.Text}}</p>
+<p class="tags">
+  <span>{{index .T (printf "vis_%s" .Post.Visibility)}}</span>
+  {{if .Post.Media}}<span>{{.Post.Media}} {{.T.has_media}}</span>{{end}}
+  {{if .Post.LocalOnly}}<span>{{.T.local_only}}</span>{{end}}
+  {{if .Post.Expires}}<span>{{.T.expires}}</span>{{end}}
+  {{if .Post.Markdown}}<span>{{.T.markdown}}</span>{{end}}
+</p>
+<form method="post" action="/post/{{.Post.ID}}/date" class="compose">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>{{.T.change_date}} <input type="datetime-local" name="when" value="{{.Post.WhenInput}}" required></label>
+  <p><button type="submit" class="button">{{.T.save}}</button></p>
+</form>
+<p class="note">{{.T.edit_note}}</p>
+<p><a href="/new?from={{.Post.ID}}">{{.T.duplicate}}</a></p>
+<form method="post" action="/post/{{.Post.ID}}/cancel" class="danger">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <p class="note">{{.T.cancel_confirm}}</p>
+  <button type="submit" class="button">{{.T.cancel}}</button>
+</form>
+{{template "foot" .}}

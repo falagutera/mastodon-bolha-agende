@@ -1,0 +1,23 @@
+{{template "head" .}}
+<h1>{{.Heading}}</h1>
+<div class="calbar">
+  <a href="/calendar?view={{.View}}&date={{.Prev}}">{{.T.cal_prev}}</a>
+  <a href="/calendar?view={{.View}}&date={{.Next}}">{{.T.cal_next}}</a>
+  <span class="views">
+    <a href="/calendar?view=month"{{if eq .View "month"}} class="on"{{end}}>{{.T.cal_month}}</a>
+    <a href="/calendar?view=week"{{if eq .View "week"}} class="on"{{end}}>{{.T.cal_week}}</a>
+  </span>
+</div>
+<p class="note">{{.T.timezone_note}} {{.Settings.Timezone}}</p>
+<table class="cal cal-{{.View}}">
+  <thead><tr>{{range .Weekdays}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
+  <tbody>
+  {{range .Calendar.Weeks}}<tr>{{range .}}
+    <td class="{{if .Today}}today {{end}}{{if .Outside}}outside{{end}}">
+      <span class="day">{{.Label}}</span>
+      {{range .Items}}<a class="item" href="/post/{{.ID}}"><b>{{.Time}}</b> {{.Excerpt}}</a>{{end}}
+    </td>{{end}}
+  </tr>{{end}}
+  </tbody>
+</table>
+{{template "foot" .}}

@@ -1,0 +1,56 @@
+{{template "head" .}}
+<h1>{{.T.new_title}}</h1>
+<form method="post" action="/new" enctype="multipart/form-data" class="compose" id="compose" data-csrf="{{.CSRF}}" data-max="{{.Limits.MaxCharacters}}">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
+  <label>{{.T.cw}} <input type="text" name="cw" id="cw" value="{{.Form.CW}}" maxlength="500"></label>
+  <label>{{.T.text}} <textarea name="text" id="text" rows="8">{{.Form.Text}}</textarea></label>
+  <p class="note"><span id="left">{{.Limits.MaxCharacters}}</span> {{.T.characters}}</p>
+{{if .Markdown}}  <label class="check"><input type="checkbox" name="plain" id="plain"{{if .Form.Plain}} checked{{end}}> {{.T.plain}}</label>
+  <section id="preview-box" hidden><h2>{{.T.preview}}</h2><div id="preview" class="preview"></div></section>
+{{end}}
+  <div class="grid">
+{{range .MaxMedia}}    <fieldset>
+      <label>{{$.T.attachment}} {{inc .}} <input type="file" name="media_{{.}}" accept="image/*,video/*,audio/*"></label>
+      <label>{{$.T.alt}} <textarea name="alt_{{.}}" rows="2" maxlength="1500"></textarea></label>
+    </fieldset>
+{{end}}  </div>
+  <p class="note">{{.T.files_again}}</p>
+  <div class="grid">
+    <label>{{.T.visibility}}
+      <select name="visibility">
+        <option value="public"{{if eq .Form.Visibility "public"}} selected{{end}}>{{.T.vis_public}}</option>
+        <option value="unlisted"{{if eq .Form.Visibility "unlisted"}} selected{{end}}>{{.T.vis_unlisted}}</option>
+        <option value="private"{{if eq .Form.Visibility "private"}} selected{{end}}>{{.T.vis_private}}</option>
+        <option value="direct"{{if eq .Form.Visibility "direct"}} selected{{end}}>{{.T.vis_direct}}</option>
+      </select>
+    </label>
+    <label>{{.T.post_language}} <input type="text" name="language" value="{{.Form.Language}}" maxlength="3" pattern="[a-z]{2,3}"></label>
+  </div>
+  <label>{{.T.reply}} <input type="text" name="reply" value="{{.Form.Reply}}" maxlength="300"></label>
+{{if .LocalOnly}}  <label class="check"><input type="checkbox" name="local_only"{{if .Form.LocalOnly}} checked{{end}}> {{.T.local_only}}</label>
+{{end}}{{if and .Expiring .Expires}}  <label>{{.T.expiry}}
+    <select name="expires_in">
+      <option value="0">{{.T.never}}</option>
+      {{range .Expires}}<option value="{{.Seconds}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </label>
+{{end}}
+  <div class="grid">
+    <label>{{.T.when}} <input type="datetime-local" name="when" id="when" value="{{.Form.When}}" required></label>
+    <label>{{.T.timezone}} <input type="text" name="timezone" id="timezone" value="{{.Form.Timezone}}" required maxlength="64"></label>
+  </div>
+  <div class="grid">
+    <label>{{.T.repeat}}
+      <select name="frequency" id="frequency">
+        <option value="once"{{if eq .Form.Frequency "once"}} selected{{end}}>{{.T.once}}</option>
+        <option value="weekly"{{if eq .Form.Frequency "weekly"}} selected{{end}}>{{.T.weekly}}</option>
+        <option value="monthly"{{if eq .Form.Frequency "monthly"}} selected{{end}}>{{.T.monthly}}</option>
+      </select>
+    </label>
+    <label>{{.T.times}} <input type="number" name="count" id="count" min="2" max="{{.MaxSeries}}" value="{{if .Form.Count}}{{.Form.Count}}{{else}}6{{end}}"></label>
+  </div>
+  <section id="dates-box" hidden><h2>{{.T.dates_preview}}</h2><ol id="dates"></ol></section>
+  <p><button type="submit" class="button">{{.T.schedule}}</button></p>
+</form>
+{{template "foot" .}}

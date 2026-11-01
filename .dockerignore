@@ -1,0 +1,6 @@
+.git
+.claude
+.env
+postgres.env
+data
+*_test.go

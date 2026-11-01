@@ -1,0 +1,6 @@
+agende is a Go rewrite inspired by mastodon-post-scheduler by Sean S. LeBlanc
+(https://github.com/seleb/mastodon-post-scheduler), declared MIT in its
+package.json. No code from that project is included.
+
+assets/artefatos.css and its IBM Plex fonts come from the bolha artefatos site.
+The fonts are under the SIL Open Font License, see assets/fonts/OFL.txt.

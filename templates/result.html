@@ -1,0 +1,7 @@
+{{template "head" .}}
+<h1>{{.T.result_title}}</h1>
+<ul class="results">
+{{range .Results}}  <li class="{{if .OK}}ok{{else}}no{{end}}">{{.When}}: {{if .OK}}{{$.T.result_ok}}{{else}}{{$.T.result_no}}{{end}}</li>
+{{end}}</ul>
+<p><a href="/queue">{{.T.back_queue}}</a></p>
+{{template "foot" .}}

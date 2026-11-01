@@ -1,0 +1,18 @@
+{{template "head" .}}
+<h1>{{.T.queue_title}}</h1>
+<p class="note">{{.T.timezone_note}} {{.Settings.Timezone}} · {{.Remaining}} {{.T.remaining}}</p>
+{{if .Posts}}<ul class="posts">
+{{range .Posts}}  <li>
+    <a class="when" href="/post/{{.ID}}">{{.When}}</a>
+    <p class="text">{{if .CW}}<strong>{{.CW}}</strong> {{end}}{{.Text}}</p>
+    <p class="tags">
+      <span>{{index $.T (printf "vis_%s" .Visibility)}}</span>
+      {{if .Media}}<span>{{.Media}} {{$.T.has_media}}</span>{{end}}
+      {{if .LocalOnly}}<span>{{$.T.local_only}}</span>{{end}}
+      {{if .Expires}}<span>{{$.T.expires}}</span>{{end}}
+      {{if .Markdown}}<span>{{$.T.markdown}}</span>{{end}}
+    </p>
+  </li>
+{{end}}</ul>
+{{else}}<p>{{.T.queue_empty}}</p>{{end}}
+{{template "foot" .}}
