@@ -4,7 +4,7 @@
 stages: [test, build]
 
 variables:
-  AGENDE_VERSION: "0.1.5"
+  AGENDE_VERSION: "0.1.6"
 
 test:
   stage: test
@@ -41,7 +41,7 @@ build:
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
-    - docker build --pull -q -t "$CI_REGISTRY_IMAGE:$AGENDE_VERSION-$CI_PIPELINE_ID" .
+    - docker build --pull -q --build-arg "VERSION=$AGENDE_VERSION-$CI_PIPELINE_ID" -t "$CI_REGISTRY_IMAGE:$AGENDE_VERSION-$CI_PIPELINE_ID" .
     - docker tag "$CI_REGISTRY_IMAGE:$AGENDE_VERSION-$CI_PIPELINE_ID" "$CI_REGISTRY_IMAGE:latest"
     - docker push -q "$CI_REGISTRY_IMAGE:$AGENDE_VERSION-$CI_PIPELINE_ID"
     - docker push -q "$CI_REGISTRY_IMAGE:latest"

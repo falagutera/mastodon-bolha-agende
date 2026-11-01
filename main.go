@@ -29,6 +29,9 @@ var templateFS embed.FS
 //go:embed assets
 var assetFS embed.FS
 
+// version is set at build time, see the Dockerfile.
+var version = "dev"
+
 const drainTimeout = 100 * time.Second
 
 type config struct {
@@ -162,7 +165,7 @@ func main() {
 			s.sessions.sweep(ctx, s.revokeToken)
 		}
 	}()
-	log.Printf("listening on %s for %s", cfg.listen, cfg.domain)
+	log.Printf("agende %s listening on %s for %s", version, cfg.listen, cfg.domain)
 	srv := &http.Server{
 		Addr:              cfg.listen,
 		Handler:           s.routes(),

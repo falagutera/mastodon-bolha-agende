@@ -211,6 +211,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 type viewData struct {
+	Version   string
 	T         map[string]string
 	Domain    string
 	Acct      string
@@ -296,7 +297,7 @@ type seriesResult struct {
 
 func (s *server) view(r *http.Request, sess session, nav string) viewData {
 	lang := language(r, s.cfg.lang)
-	v := viewData{T: strs(lang), Lang: lang, Domain: s.cfg.domain, Acct: sess.Acct, CSRF: sess.CSRF, Nav: nav,
+	v := viewData{T: strs(lang), Lang: lang, Version: version, Domain: s.cfg.domain, Acct: sess.Acct, CSRF: sess.CSRF, Nav: nav,
 		Markdown: s.cfg.markdown, LocalOnly: s.cfg.localOnly, Expiring: s.cfg.expiring, MaxSeries: maxSeries}
 	if key := r.URL.Query().Get("done"); slices.Contains(flashMessages, key) {
 		v.Flash = v.T["flash_"+key]

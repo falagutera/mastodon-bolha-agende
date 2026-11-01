@@ -54,3 +54,4 @@ button.link { background: none; border: 0; color: inherit; text-decoration: unde
   .cal td { height: auto; min-height: 2.5rem; }
   .cal td.outside { display: none; }
 }
+.version { color: var(--muted); }
