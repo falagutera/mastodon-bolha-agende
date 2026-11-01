@@ -4,7 +4,7 @@
 stages: [test, build]
 
 variables:
-  AGENDE_VERSION: "0.1.0"
+  AGENDE_VERSION: "0.1.1"
 
 test:
   stage: test

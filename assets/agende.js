@@ -1,6 +1,17 @@
 // Conveniences for the composer. Scheduling works without this file.
 (function () {
   'use strict';
+  // The draft stays in this browser until it is scheduled, so an expired session
+  // doesn't lose it. It never leaves the browser.
+  const draftKey = 'agende-draft';
+  const params = new URLSearchParams(location.search);
+  if (location.pathname.startsWith('/result/') || params.get('done') === 'created') {
+    localStorage.removeItem(draftKey);
+  }
+  const logout = document.querySelector('.logout');
+  if (logout) {
+    logout.addEventListener('submit', function () { localStorage.removeItem(draftKey); });
+  }
   const form = document.getElementById('compose');
   if (!form) return;
   const csrf = form.dataset.csrf;
@@ -71,13 +82,35 @@
     }));
   }
 
+  function saveDraft() {
+    if (text.value === '' && cw.value === '') {
+      localStorage.removeItem(draftKey);
+      return;
+    }
+    localStorage.setItem(draftKey, JSON.stringify({ text: text.value, cw: cw.value }));
+  }
+
+  function restoreDraft() {
+    if (text.value !== '' || params.has('from')) return;
+    const saved = localStorage.getItem(draftKey);
+    if (!saved) return;
+    try {
+      const draft = JSON.parse(saved);
+      text.value = draft.text || '';
+      cw.value = draft.cw || '';
+    } catch (err) {
+      localStorage.removeItem(draftKey);
+    }
+  }
+
   const delayedPreview = debounce(renderPreview, 400);
-  text.addEventListener('input', function () { count(); delayedPreview(); });
-  cw.addEventListener('input', count);
+  text.addEventListener('input', function () { count(); delayedPreview(); saveDraft(); });
+  cw.addEventListener('input', function () { count(); saveDraft(); });
   if (plain) plain.addEventListener('change', renderPreview);
   [when, timezone, frequency, countInput].forEach(function (el) {
     el.addEventListener('change', renderDates);
   });
+  restoreDraft();
   count();
   renderPreview();
   renderDates();
