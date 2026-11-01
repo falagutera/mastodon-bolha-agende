@@ -33,9 +33,13 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 
 ## Versions
 
-Images are tagged `<version>-<build>`, such as `0.1.6-847`. The version is set in `.gitlab-ci.yml` and the build is the GitLab pipeline number. These tags never move, and `latest` follows the newest build.
+Versions look like `X.Y.Z-BUILD`. `X.Y.Z` is in the `VERSION` file and follows SemVer, and `BUILD` is the GitLab pipeline number. A local build shows `X.Y.Z-dev`. The page footer shows the version and links to the [container registry](https://gitlab.gutocarvalho.net/open/agende/container_registry).
 
-The page footer shows the same value, so you can compare what is live with the [container registry](https://gitlab.gutocarvalho.net/open/agende/container_registry). A local build shows `dev`.
+| Image tag | Moves? |
+|---|---|
+| `X.Y.Z-BUILD` | Never. Pin this one in production. |
+| `X.Y.Z` | On each build of that version. |
+| `latest` | On each build. |
 
 ## How it stores data
 

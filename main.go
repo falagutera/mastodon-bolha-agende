@@ -29,9 +29,6 @@ var templateFS embed.FS
 //go:embed assets
 var assetFS embed.FS
 
-// version is set at build time, see the Dockerfile.
-var version = "dev"
-
 const drainTimeout = 100 * time.Second
 
 type config struct {
