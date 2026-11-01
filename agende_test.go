@@ -770,3 +770,24 @@ func TestSharedTokenSurvivesOneSession(t *testing.T) {
 		t.Errorf("revoked %v", revoked)
 	}
 }
+
+func TestZoneOptions(t *testing.T) {
+	now := time.Date(2027, 1, 15, 12, 0, 0, 0, time.UTC)
+	loc, _ := time.LoadLocation("America/Campo_Grande")
+	if got := zoneLabel("America/Campo_Grande", loc, now); got != "America/Campo_Grande (UTC-4)" {
+		t.Error(got)
+	}
+	india, _ := time.LoadLocation("Asia/Kolkata")
+	if got := zoneLabel("Asia/Kolkata", india, now); got != "Asia/Kolkata (UTC+5:30)" {
+		t.Error(got)
+	}
+	opts := zoneOptions("Asia/Kolkata", now)
+	if last := opts[len(opts)-1]; last.Name != "Asia/Kolkata" || !last.On {
+		t.Errorf("current zone missing: %+v", last)
+	}
+	for _, o := range zoneOptions("Mars/Base", now) {
+		if o.Name == "Mars/Base" {
+			t.Error("invalid zone offered")
+		}
+	}
+}

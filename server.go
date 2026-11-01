@@ -237,6 +237,7 @@ type viewData struct {
 	Message   string
 	MaxMedia  []int
 	Expires   []expiryOption
+	Zones     []zoneOption
 }
 
 type postView struct {
@@ -446,6 +447,7 @@ func (s *server) composeView(r *http.Request, sess session, st settings, form co
 	v.Limits = s.api.instanceLimits(r.Context())
 	v.Form = form
 	v.Now = time.Now().Format(dateTimeForm)
+	v.Zones = zoneOptions(form.Timezone, time.Now())
 	for i := range v.Limits.MaxMedia {
 		v.MaxMedia = append(v.MaxMedia, i)
 	}
@@ -968,6 +970,7 @@ func (s *server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	}
 	v := s.view(r, sess, "settings")
 	v.Settings = st
+	v.Zones = zoneOptions(st.Timezone, time.Now())
 	s.render(w, "settings.html", http.StatusOK, v)
 }
 
@@ -981,6 +984,7 @@ func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request, sess
 	if tzErr != nil || st.Timezone == "" || !slices.Contains(visibilities, st.Visibility) || !langPattern.MatchString(st.Language) {
 		v := s.view(r, sess, "settings")
 		v.Settings = st
+		v.Zones = zoneOptions(s.defaults().Timezone, time.Now())
 		v.Error = v.T["form_invalid"]
 		s.render(w, "settings.html", http.StatusUnprocessableEntity, v)
 		return

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"time"
 )
 
@@ -102,4 +103,47 @@ func replyID(value, instance string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%w", errBadReply)
+}
+
+// commonZones are offered in the forms; the current value is always added.
+var commonZones = []string{
+	"America/Araguaina", "America/Bahia", "America/Belem", "America/Boa_Vista", "America/Campo_Grande",
+	"America/Cuiaba", "America/Fortaleza", "America/Maceio", "America/Manaus", "America/Noronha",
+	"America/Porto_Velho", "America/Recife", "America/Rio_Branco", "America/Sao_Paulo",
+	"America/Argentina/Buenos_Aires", "America/Chicago", "America/Los_Angeles", "America/New_York",
+	"Asia/Tokyo", "Europe/Berlin", "Europe/Lisbon", "Europe/London", "UTC",
+}
+
+type zoneOption struct {
+	Name  string
+	Label string
+	On    bool
+}
+
+// zoneLabel shows the offset as it is right now, so daylight saving is reflected.
+func zoneLabel(name string, loc *time.Location, now time.Time) string {
+	_, offset := now.In(loc).Zone()
+	sign := "+"
+	if offset < 0 {
+		sign, offset = "-", -offset
+	}
+	label := fmt.Sprintf("%s (UTC%s%d", name, sign, offset/3600)
+	if m := offset % 3600 / 60; m != 0 {
+		label += fmt.Sprintf(":%02d", m)
+	}
+	return label + ")"
+}
+
+func zoneOptions(current string, now time.Time) []zoneOption {
+	names := commonZones
+	if !slices.Contains(names, current) {
+		names = append(slices.Clone(names), current)
+	}
+	out := make([]zoneOption, 0, len(names))
+	for _, name := range names {
+		if loc, err := time.LoadLocation(name); err == nil {
+			out = append(out, zoneOption{Name: name, Label: zoneLabel(name, loc, now), On: name == current})
+		}
+	}
+	return out
 }

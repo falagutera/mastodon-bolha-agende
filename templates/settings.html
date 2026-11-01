@@ -2,7 +2,7 @@
 <h1>{{.T.settings_title}}</h1>
 <form method="post" action="/settings" class="compose">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label>{{.T.timezone}} <input type="text" name="timezone" value="{{.Settings.Timezone}}" list="timezones" required maxlength="64"><datalist id="timezones"><option value="America/Sao_Paulo"></option><option value="America/Manaus"></option><option value="America/Campo_Grande"></option><option value="America/Cuiaba"></option><option value="America/Belem"></option><option value="America/Fortaleza"></option><option value="America/Recife"></option><option value="America/Bahia"></option><option value="America/Rio_Branco"></option><option value="America/Noronha"></option><option value="America/New_York"></option><option value="America/Los_Angeles"></option><option value="Europe/Lisbon"></option><option value="Europe/London"></option><option value="Europe/Berlin"></option><option value="UTC"></option></datalist></label>
+  <label>{{.T.timezone}} <select name="timezone" required>{{range .Zones}}<option value="{{.Name}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   <label>{{.T.default_visibility}}
     <select name="visibility">
       <option value="public"{{if eq .Settings.Visibility "public"}} selected{{end}}>{{.T.vis_public}}</option>
