@@ -31,6 +31,12 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 
 4. `docker compose up -d`, and point your reverse proxy at `127.0.0.1:8080`. It must serve HTTPS, because the session cookie needs it, and accept uploads as large as `AGENDE_MAX_UPLOAD_MB`.
 
+## Versions
+
+Images are tagged `<version>-<build>`, such as `0.1.6-847`. The version is set in `.gitlab-ci.yml` and the build is the GitLab pipeline number. These tags never move, and `latest` follows the newest build.
+
+The page footer shows the same value, so you can compare what is live with the [container registry](https://gitlab.gutocarvalho.net/open/agende/container_registry). A local build shows `dev`.
+
 ## How it stores data
 
 | Where | What |
