@@ -1,4 +1,4 @@
-module gitlab.gutocarvalho.net/open/agende
+module gitlab.gutocarvalho.net/open/bolha/agende
 
 go 1.26.0
 
