@@ -1,15 +1,23 @@
 {{template "head" .}}
-<h1>{{.T.new_title}}</h1>
+<h1>{{if .Form.Edit}}{{.T.edit_title}}{{else}}{{.T.new_title}}{{end}}</h1>
 <form method="post" action="/new" enctype="multipart/form-data" class="compose" id="compose" data-csrf="{{.CSRF}}" data-max="{{.Limits.MaxCharacters}}">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
-  <label>{{.T.cw}} <input type="text" name="cw" id="cw" value="{{.Form.CW}}" maxlength="500"></label>
+{{if .Form.Edit}}  <input type="hidden" name="edit_id" value="{{.Form.Edit}}">
+{{end}}{{if .Form.Sensitive}}  <input type="hidden" name="sensitive" value="1">
+{{end}}  <label>{{.T.cw}} <input type="text" name="cw" id="cw" value="{{.Form.CW}}" maxlength="500"></label>
   <label>{{.T.text}} <textarea name="text" id="text" rows="8">{{.Form.Text}}</textarea></label>
   <p class="note"><span id="left">{{.Limits.MaxCharacters}}</span> {{.T.characters}}</p>
 {{if .Markdown}}  <label class="check"><input type="checkbox" name="plain" id="plain"{{if .Form.Plain}} checked{{end}}> {{.T.plain}}</label>
   <section id="preview-box" hidden><h2>{{.T.preview}}</h2><div id="preview" class="preview"></div></section>
 {{end}}
-  <div class="grid">
+{{if .Form.Kept}}  <div class="grid">
+{{range .Form.Kept}}    <fieldset>
+      <label class="check"><input type="checkbox" name="keep_{{.ID}}" checked> {{$.T.keep_file}} ({{.Type}})</label>
+      <label>{{$.T.alt}} <textarea name="keep_alt_{{.ID}}" rows="2" maxlength="1500">{{.Alt}}</textarea></label>
+    </fieldset>
+{{end}}  </div>
+{{end}}  <div class="grid">
 {{range .MaxMedia}}    <fieldset>
       <label>{{$.T.attachment}} {{inc .}} <input type="file" name="media_{{.}}" accept="image/*,video/*,audio/*"></label>
       <label>{{$.T.alt}} <textarea name="alt_{{.}}" rows="2" maxlength="1500"></textarea></label>
@@ -40,7 +48,9 @@
     <label>{{.T.when}} <input type="datetime-local" name="when" id="when" value="{{.Form.When}}" required></label>
     <label>{{.T.timezone}} <select name="timezone" id="timezone" required>{{range .Zones}}<option value="{{.Name}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   </div>
-  <div class="grid">
+{{if .Form.Edit}}  <input type="hidden" name="frequency" id="frequency" value="once">
+  <input type="hidden" name="count" id="count" value="2">
+{{else}}  <div class="grid">
     <label>{{.T.repeat}}
       <select name="frequency" id="frequency">
         <option value="once"{{if eq .Form.Frequency "once"}} selected{{end}}>{{.T.once}}</option>
@@ -51,6 +61,6 @@
     <label>{{.T.times}} <input type="number" name="count" id="count" min="2" max="{{.MaxSeries}}" value="{{if .Form.Count}}{{.Form.Count}}{{else}}6{{end}}"></label>
   </div>
   <section id="dates-box" hidden><h2>{{.T.dates_preview}}</h2><ol id="dates"></ol></section>
-  <p><button type="submit" class="button">{{.T.schedule}}</button></p>
+{{end}}  <p><button type="submit" class="button">{{if .Form.Edit}}{{.T.save}}{{else}}{{.T.schedule}}{{end}}</button></p>
 </form>
 {{template "foot" .}}

@@ -150,6 +150,7 @@ type fakeMastodon struct {
 	forms     []url.Values
 	media     int
 	revoked   []string
+	alts      []string
 }
 
 var tokenOwner = map[string]string{"token-ana": "1", "token-bia": "2"}
@@ -171,6 +172,12 @@ func newFakeMastodon() (*fakeMastodon, *httptest.Server) {
 	mux.HandleFunc("GET /api/v2/instance", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"configuration":{"statuses":{"max_characters":1200,"max_media_attachments":4,"expirations":[900,3600]}}}`)
 	})
+	mux.HandleFunc("PUT /api/v1/media/{id}", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.alts = append(f.alts, r.FormValue("description"))
+		fmt.Fprint(w, `{}`)
+	})
 	mux.HandleFunc("GET /api/v1/accounts/verify_credentials", func(w http.ResponseWriter, r *http.Request) {
 		id := who(r)
 		fmt.Fprintf(w, `{"id":%q,"username":"user%s"}`, id, id)
@@ -188,7 +195,16 @@ func newFakeMastodon() (*fakeMastodon, *httptest.Server) {
 		f.forms = append(f.forms, r.PostForm)
 		f.next++
 		id := strconv.Itoa(f.next)
-		item := map[string]any{"id": id, "scheduled_at": r.PostFormValue("scheduled_at"), "params": map[string]any{"text": r.PostFormValue("status"), "visibility": r.PostFormValue("visibility")}, "media_attachments": []any{}}
+		if r.PostFormValue("status") == "REFUSE" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			fmt.Fprint(w, `{"error":"refused"}`)
+			return
+		}
+		media := []any{}
+		for _, m := range r.PostForm["media_ids[]"] {
+			media = append(media, map[string]any{"id": m, "type": "image", "description": "alt"})
+		}
+		item := map[string]any{"id": id, "scheduled_at": r.PostFormValue("scheduled_at"), "params": map[string]any{"text": r.PostFormValue("status"), "visibility": r.PostFormValue("visibility")}, "media_attachments": media}
 		f.scheduled[id] = item
 		f.owner[id] = who(r)
 		json.NewEncoder(w).Encode(item)
@@ -789,5 +805,97 @@ func TestZoneOptions(t *testing.T) {
 		if o.Name == "Mars/Base" {
 			t.Error("invalid zone offered")
 		}
+	}
+}
+
+func scheduleOne(t *testing.T, f *fakeMastodon, b *browser, fields map[string]string, files map[string]string) string {
+	t.Helper()
+	b.compose(fields, files)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id := range f.scheduled {
+		return id
+	}
+	t.Fatal("not scheduled")
+	return ""
+}
+
+func TestEditCreatesNewThenCancelsOld(t *testing.T) {
+	f, app, _ := testApp(t)
+	b := &browser{t: t, app: app.URL}
+	b.login("ana")
+	id := scheduleOne(t, f, b, baseFields(), map[string]string{"media_0": "image/png"})
+	status, _, page := b.do(http.MethodGet, "/post/"+id+"/edit", "", nil)
+	if status != http.StatusOK || !strings.Contains(page, `name="keep_1"`) || !strings.Contains(page, "edit_id") {
+		t.Fatalf("edit form: %d", status)
+	}
+	fields := baseFields()
+	fields["text"] = "novo"
+	fields["edit_id"] = id
+	fields["keep_1"] = "on"
+	fields["keep_alt_1"] = "nova descricao"
+	if status, loc, _ := b.compose(fields, nil); status != http.StatusSeeOther || !strings.Contains(loc, "edited") {
+		t.Fatalf("save: %d %s", status, loc)
+	}
+	if len(f.scheduled) != 1 {
+		t.Fatalf("queue: %d", len(f.scheduled))
+	}
+	if _, ok := f.scheduled[id]; ok {
+		t.Error("old post still there")
+	}
+	last := f.forms[len(f.forms)-1]
+	if last.Get("status") != "novo" || last.Get("media_ids[]") != "1" {
+		t.Errorf("sent: %v", last)
+	}
+	if len(f.alts) != 1 || f.alts[0] != "nova descricao" {
+		t.Errorf("alts: %v", f.alts)
+	}
+}
+
+func TestEditFailureKeepsOriginal(t *testing.T) {
+	f, app, _ := testApp(t)
+	b := &browser{t: t, app: app.URL}
+	b.login("ana")
+	id := scheduleOne(t, f, b, baseFields(), nil)
+	fields := baseFields()
+	fields["text"] = "REFUSE"
+	fields["edit_id"] = id
+	status, _, page := b.compose(fields, nil)
+	if status != http.StatusBadGateway || !strings.Contains(page, "REFUSE") {
+		t.Errorf("failure: %d", status)
+	}
+	if _, ok := f.scheduled[id]; !ok {
+		t.Error("original lost")
+	}
+}
+
+func TestEditRefusesAnotherAccountsPost(t *testing.T) {
+	f, app, _ := testApp(t)
+	ana := &browser{t: t, app: app.URL}
+	ana.login("ana")
+	id := scheduleOne(t, f, ana, baseFields(), nil)
+	bia := &browser{t: t, app: app.URL}
+	bia.login("bia")
+	fields := baseFields()
+	fields["edit_id"] = id
+	if status, _, _ := bia.compose(fields, nil); status != http.StatusNotFound {
+		t.Errorf("save: %d", status)
+	}
+	if status, _, _ := bia.do(http.MethodGet, "/post/"+id+"/edit", "", nil); status != http.StatusNotFound {
+		t.Errorf("form: %d", status)
+	}
+	if len(f.scheduled) != 1 || len(f.forms) != 1 {
+		t.Errorf("queue %d, sent %d", len(f.scheduled), len(f.forms))
+	}
+}
+
+func TestPollsAreNotEditable(t *testing.T) {
+	var p scheduledStatus
+	if !editable(p) {
+		t.Error("plain post refused")
+	}
+	p.Params.Poll = map[string]any{"options": []any{"a"}}
+	if editable(p) {
+		t.Error("poll accepted")
 	}
 }

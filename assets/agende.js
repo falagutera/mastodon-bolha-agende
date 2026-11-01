@@ -18,7 +18,7 @@
       localStorage.removeItem(key);
     }
   });
-  if (location.pathname.startsWith('/result/') || params.get('done') === 'created') {
+  if (location.pathname.startsWith('/result/') || params.get('done') === 'created' || params.get('done') === 'edited') {
     localStorage.removeItem(draftKey);
   }
   const logout = document.querySelector('.logout');
@@ -69,9 +69,11 @@
   const frequency = document.getElementById('frequency');
   const countInput = document.getElementById('count');
   const datesBox = document.getElementById('dates-box');
+  const fixed = frequency.type === 'hidden';
   const dates = document.getElementById('dates');
 
   async function renderDates() {
+    if (fixed) return;
     const repeated = frequency.value !== 'once';
     countInput.closest('label').hidden = !repeated;
     datesBox.hidden = !repeated;

@@ -67,6 +67,9 @@ type scheduledParams struct {
 	InReplyToID any    `json:"in_reply_to_id"`
 	LocalOnly   any    `json:"local_only"`
 	ExpiresIn   any    `json:"expires_in"`
+	Sensitive   any    `json:"sensitive"`
+	Poll        any    `json:"poll"`
+	QuotedID    any    `json:"quoted_status_id"`
 }
 
 type scheduledStatus struct {
@@ -85,6 +88,7 @@ type newStatus struct {
 	InReplyToID string
 	LocalOnly   bool
 	ExpiresIn   int
+	Sensitive   bool
 	MediaIDs    []string
 	ScheduledAt time.Time
 }
@@ -238,6 +242,9 @@ func (s newStatus) form() url.Values {
 	if s.LocalOnly {
 		f.Set("local_only", "true")
 	}
+	if s.Sensitive {
+		f.Set("sensitive", "true")
+	}
 	if s.ExpiresIn > 0 {
 		f.Set("expires_in", strconv.Itoa(s.ExpiresIn))
 	}
@@ -273,6 +280,17 @@ func (m *mastodon) schedule(ctx context.Context, token, key string, s newStatus)
 func (m *mastodon) reschedule(ctx context.Context, token, id string, at time.Time) error {
 	form := url.Values{"scheduled_at": {at.UTC().Format(time.RFC3339)}}
 	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/scheduled_statuses/"+id,
+		"application/x-www-form-urlencoded", nil, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	return decode(resp, nil)
+}
+
+// describeMedia changes the description of an attachment.
+func (m *mastodon) describeMedia(ctx context.Context, token, id, alt string) error {
+	form := url.Values{"description": {alt}}
+	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/media/"+id,
 		"application/x-www-form-urlencoded", nil, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err

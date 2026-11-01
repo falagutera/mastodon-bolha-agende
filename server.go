@@ -25,6 +25,8 @@ import (
 	"github.com/yuin/goldmark"
 )
 
+var errOldNotCancelled = errors.New("old post not cancelled")
+
 const (
 	formMemory      = 1 << 20
 	maxMediaUploads = 25 // the instance allows 30 per 30 minutes
@@ -43,7 +45,7 @@ var (
 	visibilities  = []string{"public", "unlisted", "private", "direct"}
 	langPattern   = regexp.MustCompile(`^[a-z]{2,3}$`)
 	allowedMedia  = []string{"image/", "video/", "audio/"}
-	flashMessages = []string{"created", "rescheduled", "cancelled", "saved"}
+	flashMessages = []string{"created", "edited", "rescheduled", "cancelled", "saved"}
 )
 
 type server struct {
@@ -184,6 +186,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /new", s.handleCreate)
 	mux.HandleFunc("GET /result/{id}", s.page(s.handleResult))
 	mux.HandleFunc("GET /post/{id}", s.page(s.handlePost))
+	mux.HandleFunc("GET /post/{id}/edit", s.page(s.handleEdit))
 	mux.HandleFunc("POST /post/{id}/date", s.action(s.handleReschedule))
 	mux.HandleFunc("POST /post/{id}/cancel", s.action(s.handleCancel))
 	mux.HandleFunc("GET /settings", s.page(s.handleSettings))
@@ -251,6 +254,7 @@ type postView struct {
 	LocalOnly  bool
 	Expires    bool
 	Markdown   bool
+	Editable   bool
 }
 
 type expiryOption struct {
@@ -274,6 +278,15 @@ type composeForm struct {
 	Count      int
 	Nonce      string
 	Notice     string
+	Edit       string
+	Sensitive  bool
+	Kept       []keptMedia
+}
+
+type keptMedia struct {
+	ID   string
+	Type string
+	Alt  string
 }
 
 type seriesResult struct {
@@ -346,6 +359,7 @@ func (s *server) describe(p scheduledStatus, loc *time.Location, layout string) 
 		ID: p.ID, When: at.Format(layout), WhenInput: at.Format(dateTimeForm),
 		Text: p.Params.Text, CW: p.Params.SpoilerText, Visibility: p.Params.Visibility, Media: len(p.Media),
 		LocalOnly: isSet(p.Params.LocalOnly), Expires: isSet(p.Params.ExpiresIn), Markdown: p.Params.ContentType == "text/markdown",
+		Editable: editable(p),
 	}
 }
 
@@ -448,7 +462,7 @@ func (s *server) composeView(r *http.Request, sess session, st settings, form co
 	v.Form = form
 	v.Now = time.Now().Format(dateTimeForm)
 	v.Zones = zoneOptions(form.Timezone, time.Now())
-	for i := range v.Limits.MaxMedia {
+	for i := range v.Limits.MaxMedia - len(form.Kept) {
 		v.MaxMedia = append(v.MaxMedia, i)
 	}
 	for _, sec := range v.Limits.Expirations {
@@ -479,21 +493,7 @@ func (s *server) handleNew(w http.ResponseWriter, r *http.Request, sess session)
 			s.instanceFailed(w, r, err)
 			return
 		}
-		form.Text, form.CW = p.Params.Text, p.Params.SpoilerText
-		if slices.Contains(visibilities, p.Params.Visibility) {
-			form.Visibility = p.Params.Visibility
-		}
-		if p.Params.InReplyToID != nil {
-			form.Reply = fmt.Sprint(p.Params.InReplyToID)
-		}
-		form.Plain = p.Params.ContentType != "text/markdown"
-		form.LocalOnly = isSet(p.Params.LocalOnly)
-		if p.Params.Language != "" {
-			form.Language = p.Params.Language
-		}
-		if n, err := strconv.Atoi(fmt.Sprint(p.Params.ExpiresIn)); err == nil {
-			form.ExpiresIn = n
-		}
+		form.prefill(p)
 		if len(p.Media) > 0 {
 			form.Notice = "duplicate_media"
 		}
@@ -503,6 +503,111 @@ func (s *server) handleNew(w http.ResponseWriter, r *http.Request, sess session)
 		v.Error = v.T["notice_"+form.Notice]
 	}
 	s.render(w, "new.html", http.StatusOK, v)
+}
+
+// prefill copies a scheduled post into the form, for Duplicate and Edit.
+func (f *composeForm) prefill(p scheduledStatus) {
+	f.Text, f.CW = p.Params.Text, p.Params.SpoilerText
+	if slices.Contains(visibilities, p.Params.Visibility) {
+		f.Visibility = p.Params.Visibility
+	}
+	if p.Params.InReplyToID != nil {
+		f.Reply = fmt.Sprint(p.Params.InReplyToID)
+	}
+	f.Plain = p.Params.ContentType != "text/markdown"
+	f.LocalOnly = isSet(p.Params.LocalOnly)
+	f.Sensitive = isSet(p.Params.Sensitive)
+	if p.Params.Language != "" {
+		f.Language = p.Params.Language
+	}
+	if n, err := strconv.Atoi(fmt.Sprint(p.Params.ExpiresIn)); err == nil {
+		f.ExpiresIn = n
+	}
+}
+
+// editable leaves out what this composer can't reproduce, such as polls and quotes
+// created in another app: recreating those posts would lose them.
+func editable(p scheduledStatus) bool {
+	return p.Params.Poll == nil && p.Params.QuotedID == nil
+}
+
+func (s *server) editForm(st settings, p scheduledStatus, loc *time.Location) composeForm {
+	form := composeForm{Language: st.Language, Timezone: loc.String(), Visibility: st.Visibility,
+		Frequency: "once", Count: 6, Nonce: randomToken(), Edit: p.ID, When: p.ScheduledAt.In(loc).Format(dateTimeForm)}
+	form.prefill(p)
+	for _, m := range p.Media {
+		form.Kept = append(form.Kept, keptMedia{ID: m.ID, Type: m.Type, Alt: m.Description})
+	}
+	return form
+}
+
+func (s *server) handleEdit(w http.ResponseWriter, r *http.Request, sess session) {
+	st, loc, err := s.userSettings(r.Context(), sess)
+	if err != nil {
+		log.Printf("settings: %v", err)
+		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
+		return
+	}
+	p, err := s.api.scheduledByID(r.Context(), sess.Token, r.PathValue("id"))
+	if err != nil {
+		s.instanceFailed(w, r, err)
+		return
+	}
+	if !editable(p) {
+		s.renderError(w, r, http.StatusConflict, "not_editable")
+		return
+	}
+	s.render(w, "new.html", http.StatusOK, s.composeView(r, sess, st, s.editForm(st, p, loc)))
+}
+
+// saveEdit replaces a scheduled post. Mastodon can't change one, so it creates the
+// new post first and only then cancels the old: if anything fails, the old one is
+// still in the queue. A media attachment moves to the new post when it is reused.
+func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, old scheduledStatus, status newStatus, files []upload, key string) error {
+	before, at := old.ScheduledAt, status.ScheduledAt
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+		Action: actionEdit, ScheduledID: old.ID, Before: &before, After: &at, Result: resultIntent, Excerpt: status.Text}
+	if err := s.db.audit(ctx, entry); err != nil {
+		return fmt.Errorf("audit: %w", err)
+	}
+	for _, m := range old.Media {
+		if r.PostFormValue("keep_"+m.ID) != "" {
+			status.MediaIDs = append(status.MediaIDs, m.ID)
+		}
+	}
+	id, err := s.sendPost(ctx, sess, status, files, key)
+	if err != nil {
+		entry.Result = outcome(err)
+		if errors.Is(err, errPublishedNow) {
+			entry.ScheduledID, entry.Result = id, resultPublished
+		}
+		s.auditResult(ctx, entry)
+		return err
+	}
+	entry.ScheduledID, entry.Result = id, resultOK
+	s.auditResult(ctx, entry)
+	for _, m := range old.Media {
+		if r.PostFormValue("keep_"+m.ID) == "" {
+			continue
+		}
+		if alt := strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID)); alt != m.Description {
+			if err := s.api.describeMedia(ctx, sess.Token, m.ID, alt); err != nil {
+				log.Printf("edit: description: %v", err)
+			}
+		}
+	}
+	cancelEntry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+		Action: actionCancel, ScheduledID: old.ID, Before: &before, Result: resultIntent, Excerpt: old.Params.Text}
+	if err := s.db.audit(ctx, cancelEntry); err != nil {
+		log.Printf("audit: %v", err)
+	}
+	err = s.api.cancel(ctx, sess.Token, old.ID)
+	cancelEntry.Result = outcome(err)
+	s.auditResult(ctx, cancelEntry)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errOldNotCancelled, err)
+	}
+	return nil
 }
 
 func (r *composeForm) load(req *http.Request) {
@@ -519,6 +624,8 @@ func (r *composeForm) load(req *http.Request) {
 	r.Frequency = req.PostFormValue("frequency")
 	r.Count, _ = strconv.Atoi(req.PostFormValue("count"))
 	r.Nonce = req.PostFormValue("nonce")
+	r.Edit = req.PostFormValue("edit_id")
+	r.Sensitive = req.PostFormValue("sensitive") != ""
 }
 
 type upload struct {
@@ -550,8 +657,14 @@ func collectUploads(r *http.Request, max int) ([]upload, error) {
 
 func (s *server) validate(f *composeForm, lim limits, files []upload) (newStatus, []time.Time, error) {
 	var zero newStatus
-	if f.Text == "" && len(files) == 0 {
+	if f.Text == "" && len(files)+len(f.Kept) == 0 {
 		return zero, nil, errors.New("empty")
+	}
+	if len(files)+len(f.Kept) > lim.MaxMedia {
+		return zero, nil, errors.New("too_many_media")
+	}
+	if f.Edit != "" {
+		f.Frequency = "once"
 	}
 	if !slices.Contains(visibilities, f.Visibility) {
 		return zero, nil, errors.New("bad_visibility")
@@ -581,7 +694,7 @@ func (s *server) validate(f *composeForm, lim limits, files []upload) (newStatus
 	if err != nil {
 		return zero, nil, errBadReply
 	}
-	status := newStatus{Text: f.Text, SpoilerText: f.CW, Visibility: f.Visibility, Language: f.Language, InReplyToID: reply}
+	status := newStatus{Text: f.Text, SpoilerText: f.CW, Visibility: f.Visibility, Language: f.Language, InReplyToID: reply, Sensitive: f.Sensitive}
 	if s.cfg.markdown && !f.Plain {
 		status.ContentType = "text/markdown"
 	}
@@ -692,6 +805,24 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	var old scheduledStatus
+	if form.Edit != "" {
+		// Read with this session's token: another account's post answers 404.
+		old, err = s.api.scheduledByID(r.Context(), sess.Token, form.Edit)
+		if err != nil {
+			s.instanceFailed(w, r, err)
+			return
+		}
+		if !editable(old) {
+			s.renderError(w, r, http.StatusConflict, "not_editable")
+			return
+		}
+		for _, m := range old.Media {
+			if r.PostFormValue("keep_"+m.ID) != "" {
+				form.Kept = append(form.Kept, keptMedia{ID: m.ID, Type: m.Type, Alt: strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID))})
+			}
+		}
+	}
 	status, dates, err := s.validate(&form, lim, files)
 	if err != nil {
 		fail(http.StatusUnprocessableEntity, err.Error())
@@ -702,6 +833,7 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		s.instanceFailed(w, r, err)
 		return
 	}
+	existing = slices.DeleteFunc(existing, func(x scheduledStatus) bool { return x.ID == form.Edit })
 	if err := checkDates(dates, existing, time.Now()); err != nil {
 		fail(http.StatusUnprocessableEntity, err.Error())
 		return
@@ -716,6 +848,29 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !fresh {
 		http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther)
+		return
+	}
+	if form.Edit != "" {
+		status.ScheduledAt = dates[0]
+		err := s.saveEdit(r.Context(), sess, r, old, status, files, form.Nonce+":0")
+		if err == nil {
+			http.Redirect(w, r, "/queue?done=edited", http.StatusSeeOther)
+			return
+		}
+		log.Printf("edit: %v", err)
+		// Let the form be sent again.
+		s.rdb.Del(context.WithoutCancel(r.Context()), formKey+hashID(sess.AccountID+":"+form.Nonce))
+		form.Nonce = randomToken()
+		switch {
+		case errors.Is(err, errOldNotCancelled):
+			fail(http.StatusOK, "old_not_cancelled")
+		case errors.Is(err, errPublishedNow):
+			fail(http.StatusOK, "published_now")
+		case errors.Is(err, errTooSoon):
+			fail(http.StatusOK, "stale")
+		default:
+			fail(http.StatusBadGateway, "edit_failed")
+		}
 		return
 	}
 	seriesID := ""

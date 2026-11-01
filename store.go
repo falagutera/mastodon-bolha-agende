@@ -91,6 +91,7 @@ const (
 	actionSchedule   = "schedule"
 	actionReschedule = "reschedule"
 	actionCancel     = "cancel"
+	actionEdit       = "edit"
 	resultIntent     = "intent"
 	resultOK         = "ok"
 	resultFailed     = "failed"

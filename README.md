@@ -45,7 +45,7 @@ Losing the encryption key or the Redis data signs everyone out, and those tokens
 
 ## Limits
 
-These come from Mastodon: at least 5 minutes ahead, 25 scheduled posts per day (UTC) and 300 in total. Only the date of a scheduled post can change. To change the text, duplicate and cancel it. Media isn't copied when duplicating.
+These come from Mastodon: at least 5 minutes ahead, 25 scheduled posts per day (UTC) and 300 in total. Mastodon only lets the date of a scheduled post change. Editing anything else creates a new scheduled post and then cancels the old one, keeping its media; the new post gets a new id. Media isn't copied when duplicating.
 
 ## Development
 

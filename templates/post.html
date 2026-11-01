@@ -15,8 +15,7 @@
   <label>{{.T.change_date}} <input type="datetime-local" name="when" value="{{.Post.WhenInput}}" required></label>
   <p><button type="submit" class="button">{{.T.save}}</button></p>
 </form>
-<p class="note">{{.T.edit_note}}</p>
-<p><a href="/new?from={{.Post.ID}}">{{.T.duplicate}}</a></p>
+<p class="links">{{if .Post.Editable}}<a href="/post/{{.Post.ID}}/edit">{{.T.edit}}</a> {{else}}<span class="note">{{.T.edit_blocked}}</span> {{end}}<a href="/new?from={{.Post.ID}}">{{.T.duplicate}}</a></p>
 <form method="post" action="/post/{{.Post.ID}}/cancel" class="danger">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <p class="note">{{.T.cancel_confirm}}</p>
