@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/assets/agende.css">
 <script src="/assets/agende.js" defer></script>
 </head>
-<body>
+<body{{if .Acct}} data-account="{{.Acct}}"{{end}}>
 <div class="wrap">
 <header>
   <div class="topbar">

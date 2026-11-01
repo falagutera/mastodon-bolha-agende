@@ -2,9 +2,22 @@
 (function () {
   'use strict';
   // The draft stays in this browser until it is scheduled, so an expired session
-  // doesn't lose it. It never leaves the browser.
-  const draftKey = 'agende-draft';
+  // doesn't lose it. Each account has its own, so nothing reappears under another
+  // account, and it expires. It never leaves the browser.
+  const draftPrefix = 'agende-draft:';
+  const draftTTL = 7 * 24 * 60 * 60 * 1000;
+  const account = document.body.dataset.account;
+  const draftKey = draftPrefix + account;
   const params = new URLSearchParams(location.search);
+  Object.keys(localStorage).filter(function (key) {
+    return key.startsWith(draftPrefix);
+  }).forEach(function (key) {
+    try {
+      if (Date.now() - JSON.parse(localStorage.getItem(key)).at > draftTTL) localStorage.removeItem(key);
+    } catch (err) {
+      localStorage.removeItem(key);
+    }
+  });
   if (location.pathname.startsWith('/result/') || params.get('done') === 'created') {
     localStorage.removeItem(draftKey);
   }
@@ -87,7 +100,7 @@
       localStorage.removeItem(draftKey);
       return;
     }
-    localStorage.setItem(draftKey, JSON.stringify({ text: text.value, cw: cw.value }));
+    localStorage.setItem(draftKey, JSON.stringify({ text: text.value, cw: cw.value, at: Date.now() }));
   }
 
   function restoreDraft() {
