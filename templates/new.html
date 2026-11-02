@@ -54,6 +54,7 @@
     <label>{{.T.repeat}}
       <select name="frequency" id="frequency">
         <option value="once"{{if eq .Form.Frequency "once"}} selected{{end}}>{{.T.once}}</option>
+        <option value="daily"{{if eq .Form.Frequency "daily"}} selected{{end}}>{{.T.daily}}</option>
         <option value="weekly"{{if eq .Form.Frequency "weekly"}} selected{{end}}>{{.T.weekly}}</option>
         <option value="monthly"{{if eq .Form.Frequency "monthly"}} selected{{end}}>{{.T.monthly}}</option>
       </select>

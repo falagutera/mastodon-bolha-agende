@@ -37,7 +37,9 @@ func parseLocal(value string, loc *time.Location) (time.Time, error) {
 	return t, nil
 }
 
-// series expands a first date into its occurrences. A monthly series keeps the
+// series expands a first date into its occurrences. A daily series keeps the
+// wall-clock time; when a zone skips that time for daylight saving, Go moves it
+// back by the offset change (02:30 becomes 01:30). A monthly series keeps the
 // chosen day and falls back to the last day of shorter months.
 func series(first time.Time, frequency string, count int) ([]time.Time, error) {
 	if frequency == "" || frequency == "once" {
@@ -49,6 +51,8 @@ func series(first time.Time, frequency string, count int) ([]time.Time, error) {
 	out := make([]time.Time, 0, count)
 	for i := range count {
 		switch frequency {
+		case "daily":
+			out = append(out, first.AddDate(0, 0, i))
 		case "weekly":
 			out = append(out, first.AddDate(0, 0, 7*i))
 		case "monthly":

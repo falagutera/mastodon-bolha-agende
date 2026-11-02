@@ -36,12 +36,47 @@ func TestSeriesMonthlyKeepsDayAndClamps(t *testing.T) {
 	}
 }
 
+func TestSeriesDailyKeepsTimeAcrossMonths(t *testing.T) {
+	loc, _ := time.LoadLocation("America/Sao_Paulo")
+	first := time.Date(2027, 1, 30, 10, 0, 0, 0, loc)
+	got, err := series(first, "daily", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2027-01-30", "2027-01-31", "2027-02-01", "2027-02-02", "2027-02-03"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d dates, want %d", len(got), len(want))
+	}
+	for i, d := range got {
+		if d.Format(time.DateOnly) != want[i] || d.Hour() != 10 || d.Minute() != 0 {
+			t.Errorf("%d: got %v, want %s at 10:00", i, d, want[i])
+		}
+	}
+}
+
+// A daily series follows the wall clock. On the day a zone skips the chosen
+// time, Go moves the post back by the offset change instead of skipping the day.
+func TestSeriesDailyAcrossDSTGap(t *testing.T) {
+	loc, _ := time.LoadLocation("America/New_York")
+	first := time.Date(2027, 3, 13, 2, 30, 0, 0, loc)
+	got, err := series(first, "daily", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2027-03-13 02:30", "2027-03-14 01:30", "2027-03-15 02:30"}
+	for i, d := range got {
+		if s := d.Format("2006-01-02 15:04"); s != want[i] {
+			t.Errorf("%d: got %s, want %s", i, s, want[i])
+		}
+	}
+}
+
 func TestSeriesRejectsBadInput(t *testing.T) {
 	now := time.Now()
 	for _, c := range []struct {
 		freq  string
 		count int
-	}{{"monthly", 1}, {"monthly", maxSeries + 1}, {"daily", 3}, {"monthly", -2}} {
+	}{{"monthly", 1}, {"monthly", maxSeries + 1}, {"hourly", 3}, {"yearly", 3}, {"monthly", -2}} {
 		if _, err := series(now, c.freq, c.count); err == nil {
 			t.Errorf("%v accepted", c)
 		}
@@ -451,6 +486,62 @@ func TestMonthlySeriesAuditsEachPost(t *testing.T) {
 	db.pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE position($1::bytea in excerpt) > 0`, marker).Scan(&plain)
 	if plain != 0 {
 		t.Error("excerpt stored in clear")
+	}
+}
+
+func TestDailySeriesCreatesOnePostPerDay(t *testing.T) {
+	f, app, db := testApp(t)
+	f.next = 5000 // keep these ids out of the other tests' range
+	b := &browser{t: t, app: app.URL}
+	b.login("ana")
+	fields := baseFields()
+	fields["frequency"] = "daily"
+	fields["count"] = "3"
+	if status, _, _ := b.compose(fields, nil); status != http.StatusSeeOther {
+		t.Fatalf("series: %d", status)
+	}
+	if len(f.forms) != 3 {
+		t.Fatalf("posts %d", len(f.forms))
+	}
+	days := make([]time.Time, 0, len(f.forms))
+	for _, form := range f.forms {
+		at, err := time.Parse(time.RFC3339, form.Get("scheduled_at"))
+		if err != nil {
+			t.Fatalf("scheduled_at: %v", err)
+		}
+		days = append(days, at.UTC())
+	}
+	for i := 1; i < len(days); i++ {
+		if days[i].Sub(days[i-1]) != 24*time.Hour {
+			t.Errorf("%d: %v after %v", i, days[i], days[i-1])
+		}
+	}
+	var results, seriesIDs int
+	db.pool.QueryRow(context.Background(), `SELECT count(DISTINCT scheduled_id), count(DISTINCT series_id) FROM audit_log
+		WHERE scheduled_id IN ('5001', '5002', '5003') AND series_id <> '' AND result = 'ok'`).Scan(&results, &seriesIDs)
+	if results != 3 || seriesIDs != 1 {
+		t.Errorf("audit rows: %d schedules, %d series", results, seriesIDs)
+	}
+}
+
+func TestDailySeriesStopsAtDailyLimit(t *testing.T) {
+	f, app, _ := testApp(t)
+	at := time.Now().UTC().AddDate(0, 0, 2)
+	for i := range dailyLimit {
+		id := strconv.Itoa(1000 + i)
+		f.scheduled[id] = map[string]any{"id": id, "scheduled_at": at.Format(time.RFC3339), "params": map[string]any{"text": "full"}}
+		f.owner[id] = "1"
+	}
+	b := &browser{t: t, app: app.URL}
+	b.login("ana")
+	fields := baseFields()
+	fields["frequency"] = "daily"
+	fields["count"] = "3"
+	if status, _, _ := b.compose(fields, nil); status != http.StatusUnprocessableEntity {
+		t.Errorf("over the daily limit: %d", status)
+	}
+	if len(f.forms) != 0 {
+		t.Errorf("sent %d posts", len(f.forms))
 	}
 }
 
