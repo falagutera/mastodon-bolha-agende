@@ -186,23 +186,50 @@ type fakeMastodon struct {
 	media     int
 	revoked   []string
 	alts      []string
+	// Delegation: tokens the instance no longer accepts, and which OAuth app each
+	// exchange and revocation used.
+	dead         map[string]bool
+	revokedBy    []string
+	tokenClients []string
 }
 
-var tokenOwner = map[string]string{"token-ana": "1", "token-bia": "2"}
+var tokenOwner = map[string]string{"token-ana": "1", "token-bia": "2", "token-cai": "3", "token-ana-d": "1", "token-bia-d": "2", "token-cai-d": "3"}
 
 func newFakeMastodon() (*fakeMastodon, *httptest.Server) {
-	f := &fakeMastodon{scheduled: map[string]map[string]any{}, owner: map[string]string{}, next: 100}
+	f := &fakeMastodon{scheduled: map[string]map[string]any{}, owner: map[string]string{}, next: 100, dead: map[string]bool{}}
 	mux := http.NewServeMux()
 	who := func(r *http.Request) string {
 		return tokenOwner[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
 	}
 	mux.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.tokenClients = append(f.tokenClients, r.FormValue("client_id"))
+		f.mu.Unlock()
 		fmt.Fprintf(w, `{"access_token":%q}`, "token-"+r.FormValue("code"))
 	})
 	mux.HandleFunc("POST /oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.revoked = append(f.revoked, r.FormValue("token"))
+		f.revokedBy = append(f.revokedBy, r.FormValue("client_id"))
 		f.mu.Unlock()
+	})
+	// Accounts 1-3 are local and active, user4 is suspended, user9@other is remote.
+	mux.HandleFunc("GET /api/v1/accounts/lookup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		switch acct := r.URL.Query().Get("acct"); acct {
+		case "user1", "user2", "user3":
+			fmt.Fprintf(w, `{"id":%q,"username":%q,"acct":%q}`, acct[4:], acct, acct)
+		case "user4":
+			fmt.Fprint(w, `{"id":"4","username":"user4","acct":"user4","suspended":true}`)
+		case "user9":
+			fmt.Fprint(w, `{"id":"9","username":"user9","acct":"user9@other.social"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":"Record not found"}`)
+		}
 	})
 	mux.HandleFunc("GET /api/v2/instance", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"configuration":{"statuses":{"max_characters":1200,"max_media_attachments":4,"expirations":[900,3600]}}}`)
@@ -288,7 +315,17 @@ func newFakeMastodon() (*fakeMastodon, *httptest.Server) {
 			fmt.Fprint(w, `{}`)
 		}
 	})
-	return f, httptest.NewServer(mux)
+	return f, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		dead := f.dead[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		f.mu.Unlock()
+		if dead {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"The access token is invalid"}`)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 }
 
 // testApp needs Postgres and Redis: set AGENDE_TEST_DATABASE and AGENDE_TEST_REDIS.
@@ -302,7 +339,8 @@ func testApp(t *testing.T) (*fakeMastodon, *httptest.Server, *store) {
 	t.Cleanup(inst.Close)
 	cfg := config{instance: inst.URL, domain: "example.social", baseURL: "https://agende.example.social", clientID: "id", clientSecret: "secret",
 		lang: "en", timezone: "UTC", markdown: true, localOnly: true, expiring: true, maxUpload: 8 << 20,
-		dbHost: dsn, dbPort: env("AGENDE_TEST_DB_PORT", "5432"), dbUser: "agende", dbPassword: "agende", dbName: "agende", dbSSLMode: "disable"}
+		dbHost: dsn, dbPort: env("AGENDE_TEST_DB_PORT", "5432"), dbUser: "agende", dbPassword: "agende", dbName: "agende", dbSSLMode: "disable",
+		delegationClientID: "did", delegationClientSecret: "dsecret", delegationKey: strings.Repeat("d", 32)}
 	key := strings.Repeat("k", 32)
 	auditBox, _ := newBox(key, "audit")
 	tokenBox, _ := newBox(key, "session-token")
@@ -310,7 +348,11 @@ func testApp(t *testing.T) (*fakeMastodon, *httptest.Server, *store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.delegationBox, _ = newBox(cfg.delegationKey, "delegation-token")
 	if err := db.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.pool.Exec(context.Background(), `DELETE FROM delegations`); err != nil {
 		t.Fatal(err)
 	}
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
@@ -331,9 +373,28 @@ type browser struct {
 	app    string
 	cookie string
 	csrf   string
+	as     string // the account post forms act on
+	dstate string // the delegation flow's state cookie
 }
 
-var csrfField = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
+var (
+	csrfField = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
+	asField   = regexp.MustCompile(`name="as" value="([^"]*)"`)
+)
+
+// refresh reads the form fields of the compose page, as a browser would.
+func (b *browser) refresh() {
+	b.t.Helper()
+	_, _, page := b.do(http.MethodGet, "/new", "", nil)
+	m := csrfField.FindStringSubmatch(page)
+	if m == nil {
+		b.t.Fatal("no csrf field")
+	}
+	b.csrf = m[1]
+	if a := asField.FindStringSubmatch(page); a != nil {
+		b.as = a[1]
+	}
+}
 
 func (b *browser) do(method, path, kind string, body io.Reader) (int, string, string) {
 	b.t.Helper()
@@ -343,6 +404,9 @@ func (b *browser) do(method, path, kind string, body io.Reader) (int, string, st
 	}
 	if b.cookie != "" {
 		req.Header.Set("Cookie", b.cookie)
+	}
+	if b.dstate != "" {
+		req.Header.Add("Cookie", delegateStateCookie+"="+b.dstate)
 	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
@@ -357,6 +421,9 @@ func (b *browser) do(method, path, kind string, body io.Reader) (int, string, st
 		}
 		if c.Name == stateCookie && c.Value != "" {
 			b.cookie = c.Name + "=" + c.Value
+		}
+		if c.Name == delegateStateCookie {
+			b.dstate = c.Value
 		}
 	}
 	return resp.StatusCode, resp.Header.Get("Location"), string(raw)
@@ -377,12 +444,7 @@ func (b *browser) login(code string) {
 	if status != http.StatusFound {
 		b.t.Fatalf("callback: %d", status)
 	}
-	_, _, page := b.do(http.MethodGet, "/new", "", nil)
-	m := csrfField.FindStringSubmatch(page)
-	if m == nil {
-		b.t.Fatal("no csrf field")
-	}
-	b.csrf = m[1]
+	b.refresh()
 }
 
 func (b *browser) compose(fields map[string]string, files map[string]string) (int, string, string) {
@@ -391,6 +453,9 @@ func (b *browser) compose(fields map[string]string, files map[string]string) (in
 	w := multipart.NewWriter(&body)
 	w.WriteField("csrf", b.csrf)
 	w.WriteField("nonce", randomToken())
+	if _, ok := fields["as"]; !ok {
+		w.WriteField("as", b.as)
+	}
 	for k, v := range fields {
 		w.WriteField(k, v)
 	}
@@ -491,7 +556,9 @@ func TestMonthlySeriesAuditsEachPost(t *testing.T) {
 
 func TestDailySeriesCreatesOnePostPerDay(t *testing.T) {
 	f, app, db := testApp(t)
-	f.next = 5000 // keep these ids out of the other tests' range
+	// The audit log only grows, so keep these ids apart from other tests and runs.
+	f.next = int(time.Now().UnixNano() % 1e12)
+	base := f.next
 	b := &browser{t: t, app: app.URL}
 	b.login("ana")
 	fields := baseFields()
@@ -518,7 +585,8 @@ func TestDailySeriesCreatesOnePostPerDay(t *testing.T) {
 	}
 	var results, seriesIDs int
 	db.pool.QueryRow(context.Background(), `SELECT count(DISTINCT scheduled_id), count(DISTINCT series_id) FROM audit_log
-		WHERE scheduled_id IN ('5001', '5002', '5003') AND series_id <> '' AND result = 'ok'`).Scan(&results, &seriesIDs)
+		WHERE scheduled_id IN ($1, $2, $3) AND series_id <> '' AND result = 'ok'`,
+		strconv.Itoa(base+1), strconv.Itoa(base+2), strconv.Itoa(base+3)).Scan(&results, &seriesIDs)
 	if results != 3 || seriesIDs != 1 {
 		t.Errorf("audit rows: %d schedules, %d series", results, seriesIDs)
 	}
@@ -625,7 +693,7 @@ func TestOtherAccountCantTouchPost(t *testing.T) {
 	for k := range f.scheduled {
 		id = k
 	}
-	form := url.Values{"csrf": {bia.csrf}, "when": {future(3)}}
+	form := url.Values{"csrf": {bia.csrf}, "as": {bia.as}, "when": {future(3)}}
 	for _, path := range []string{"/post/" + id + "/cancel", "/post/" + id + "/date"} {
 		if status, _, _ := bia.do(http.MethodPost, path, "application/x-www-form-urlencoded", strings.NewReader(form.Encode())); status != http.StatusNotFound {
 			t.Errorf("%s: %d", path, status)
@@ -648,21 +716,21 @@ func TestRescheduleCancelLogout(t *testing.T) {
 	for k := range f.scheduled {
 		id = k
 	}
-	form := url.Values{"csrf": {b.csrf}, "when": {future(5)}}
+	form := url.Values{"csrf": {b.csrf}, "as": {b.as}, "when": {future(5)}}
 	if status, loc, _ := b.do(http.MethodPost, "/post/"+id+"/date", "application/x-www-form-urlencoded", strings.NewReader(form.Encode())); status != http.StatusSeeOther || !strings.Contains(loc, "rescheduled") {
 		t.Errorf("reschedule: %d %s", status, loc)
 	}
-	soon := url.Values{"csrf": {b.csrf}, "when": {time.Now().UTC().Format(dateTimeForm)}}
+	soon := url.Values{"csrf": {b.csrf}, "as": {b.as}, "when": {time.Now().UTC().Format(dateTimeForm)}}
 	if _, loc, _ := b.do(http.MethodPost, "/post/"+id+"/date", "application/x-www-form-urlencoded", strings.NewReader(soon.Encode())); !strings.Contains(loc, "too_soon") {
 		t.Errorf("too soon: %s", loc)
 	}
-	if status, _, _ := b.do(http.MethodPost, "/post/"+id+"/cancel", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"csrf": {b.csrf}}.Encode())); status != http.StatusSeeOther {
+	if status, _, _ := b.do(http.MethodPost, "/post/"+id+"/cancel", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"csrf": {b.csrf}, "as": {b.as}}.Encode())); status != http.StatusSeeOther {
 		t.Errorf("cancel: %d", status)
 	}
 	if len(f.scheduled) != 0 {
 		t.Error("not canceled")
 	}
-	b.do(http.MethodPost, "/logout", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"csrf": {b.csrf}}.Encode()))
+	b.do(http.MethodPost, "/logout", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"csrf": {b.csrf}, "as": {b.as}}.Encode()))
 	if len(f.revoked) != 1 || f.revoked[0] != "token-ana" {
 		t.Errorf("revoked: %v", f.revoked)
 	}
@@ -825,6 +893,7 @@ func TestResentFormDoesNothing(t *testing.T) {
 		w := multipart.NewWriter(&body)
 		w.WriteField("csrf", b.csrf)
 		w.WriteField("nonce", nonce)
+		w.WriteField("as", b.as)
 		for k, v := range baseFields() {
 			w.WriteField(k, v)
 		}

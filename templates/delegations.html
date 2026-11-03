@@ -1,0 +1,39 @@
+{{template "head" .}}
+<h1>{{.T.delegations_title}}</h1>
+<p class="lede">{{printf .T.delegations_lede .Acct}}</p>
+
+<h2>{{.T.granted_title}}</h2>
+{{if .Granted}}<ul class="delegations">
+{{range .Granted}}  <li>
+    <span>@{{.DelegateAcct}}</span>
+    <form method="post" action="/delegations/revoke">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="delegate" value="{{.DelegateID}}">
+      <button type="submit" class="link">{{$.T.revoke}}</button>
+    </form>
+  </li>
+{{end}}</ul>
+{{else}}<p class="note">{{.T.granted_empty}}</p>
+{{end}}
+{{if lt (len .Granted) .MaxDelegations}}<form method="post" action="/delegations" class="compose">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label>{{.T.delegate_to}} <input type="text" name="handle" required maxlength="80" autocomplete="off" placeholder="@{{.T.delegate_placeholder}}"></label>
+  <p class="note">{{.T.delegate_note}}</p>
+  <p><button type="submit" class="button">{{.T.delegate_button}}</button></p>
+</form>
+{{end}}
+<h2>{{.T.received_title}}</h2>
+{{if .Received}}<ul class="delegations">
+{{range .Received}}  <li>
+    <span>@{{.OwnerAcct}}</span>
+    <form method="post" action="/delegations/leave">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="owner" value="{{.OwnerID}}">
+      <button type="submit" class="link">{{$.T.leave}}</button>
+    </form>
+  </li>
+{{end}}</ul>
+{{else}}<p class="note">{{.T.received_empty}}</p>
+{{end}}
+<p class="note">{{.T.delegations_privacy}}</p>
+{{template "foot" .}}

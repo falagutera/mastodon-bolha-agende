@@ -42,7 +42,37 @@ func (s *server) clearCookie(w http.ResponseWriter, name string) {
 	s.setCookie(w, name, "", -time.Second)
 }
 
-func (s *server) redirectURI() string { return s.cfg.baseURL + "/auth/callback" }
+// oauthApp is one of the two OAuth applications: sign-in, or delegation.
+type oauthApp struct {
+	id, secret, redirect string
+}
+
+func (s *server) loginApp() oauthApp {
+	return oauthApp{id: s.cfg.clientID, secret: s.cfg.clientSecret, redirect: s.cfg.baseURL + "/auth/callback"}
+}
+
+func (s *server) delegationApp() oauthApp {
+	return oauthApp{id: s.cfg.delegationClientID, secret: s.cfg.delegationClientSecret, redirect: s.cfg.baseURL + "/delegations/callback"}
+}
+
+// authorizeURL starts an authorization code flow with PKCE. extra adds parameters
+// such as prompt=login.
+func (s *server) authorizeURL(app oauthApp, state, verifier string, extra url.Values) string {
+	challenge := sha256.Sum256([]byte(verifier))
+	q := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {app.id},
+		"redirect_uri":          {app.redirect},
+		"scope":                 {oauthScope},
+		"state":                 {state},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(challenge[:])},
+		"code_challenge_method": {"S256"},
+	}
+	for k, v := range extra {
+		q[k] = v
+	}
+	return s.cfg.instance + "/oauth/authorize?" + q.Encode()
+}
 
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	state, verifier := randomToken(), randomToken()
@@ -52,17 +82,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setCookie(w, stateCookie, state, stateTTL)
-	challenge := sha256.Sum256([]byte(verifier))
-	q := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {s.cfg.clientID},
-		"redirect_uri":          {s.redirectURI()},
-		"scope":                 {oauthScope},
-		"state":                 {state},
-		"code_challenge":        {base64.RawURLEncoding.EncodeToString(challenge[:])},
-		"code_challenge_method": {"S256"},
-	}
-	http.Redirect(w, r, s.cfg.instance+"/oauth/authorize?"+q.Encode(), http.StatusFound)
+	http.Redirect(w, r, s.authorizeURL(s.loginApp(), state, verifier, nil), http.StatusFound)
 }
 
 func (s *server) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +112,7 @@ func (s *server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusForbidden, "denied")
 		return
 	}
-	token, err := s.exchangeCode(r.Context(), q.Get("code"), verifier)
+	token, err := s.exchangeCode(r.Context(), s.loginApp(), q.Get("code"), verifier)
 	if err != nil {
 		log.Printf("token exchange: %v", err)
 		s.renderError(w, r, http.StatusBadGateway, "instance")
@@ -128,13 +148,13 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request, sess sessi
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *server) exchangeCode(ctx context.Context, code, verifier string) (string, error) {
+func (s *server) exchangeCode(ctx context.Context, app oauthApp, code, verifier string) (string, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
-		"client_id":     {s.cfg.clientID},
-		"client_secret": {s.cfg.clientSecret},
-		"redirect_uri":  {s.redirectURI()},
+		"client_id":     {app.id},
+		"client_secret": {app.secret},
+		"redirect_uri":  {app.redirect},
 		"code_verifier": {verifier},
 		"scope":         {oauthScope},
 	}
@@ -163,8 +183,10 @@ func (s *server) exchangeCode(ctx context.Context, code, verifier string) (strin
 	return out.AccessToken, nil
 }
 
-func (s *server) revokeToken(token string) error {
-	form := url.Values{"client_id": {s.cfg.clientID}, "client_secret": {s.cfg.clientSecret}, "token": {token}}
+func (s *server) revokeToken(token string) error { return s.revokeWith(s.loginApp(), token) }
+
+func (s *server) revokeWith(app oauthApp, token string) error {
+	form := url.Values{"client_id": {app.id}, "client_secret": {app.secret}, "token": {token}}
 	resp, err := s.api.client.PostForm(s.cfg.instance+"/oauth/revoke", form)
 	if err != nil {
 		return err

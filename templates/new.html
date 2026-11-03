@@ -2,6 +2,7 @@
 <h1>{{if .Form.Edit}}{{.T.edit_title}}{{else}}{{.T.new_title}}{{end}}</h1>
 <form method="post" action="/new" enctype="multipart/form-data" class="compose" id="compose" data-csrf="{{.CSRF}}" data-max="{{.Limits.MaxCharacters}}">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="as" value="{{.TargetID}}">
   <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
 {{if .Form.Edit}}  <input type="hidden" name="edit_id" value="{{.Form.Edit}}">
 {{end}}{{if .Form.Sensitive}}  <input type="hidden" name="sensitive" value="1">

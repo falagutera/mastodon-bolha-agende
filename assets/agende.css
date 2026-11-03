@@ -55,3 +55,18 @@ button.link { background: none; border: 0; color: inherit; text-decoration: unde
   .cal td.outside { display: none; }
 }
 .version { color: var(--muted); }
+.acting { display: flex; gap: .5rem; align-items: center; padding: .5rem 0; }
+.acting select { width: auto; }
+.acting-as { margin: .5rem 0 0; padding: .55rem .8rem; border: 1px solid var(--accent, #e3b341); border-radius: 6px; font-weight: 600; }
+.delegations { list-style: none; padding: 0; }
+.delegations li { display: flex; gap: .75rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.delegations li form { margin-left: auto; }
+.filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; margin: 1rem 0; }
+.filters label { display: flex; flex-direction: column; gap: .25rem; }
+.filters select, .filters input { width: auto; }
+.audit { list-style: none; padding: 0; }
+.audit li { display: flex; flex-wrap: wrap; gap: .25rem .75rem; padding: .55rem 0; border-bottom: 1px solid var(--line); }
+.audit .when { color: var(--muted); min-width: 9.5rem; }
+.audit .text { flex: 1 1 20rem; overflow-wrap: anywhere; }
+.audit .status { color: var(--muted); }
+.audit .status.warn { color: #e08a83; }

@@ -47,8 +47,10 @@ type limits struct {
 }
 
 type account struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Acct      string `json:"acct"`
+	Suspended bool   `json:"suspended"`
 }
 
 type mediaAttachment struct {
@@ -139,6 +141,29 @@ func (m *mastodon) verify(ctx context.Context, token string) (account, error) {
 	}
 	if a.ID == "" || a.Username == "" {
 		return a, errors.New("empty account")
+	}
+	return a, nil
+}
+
+var handlePattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,30}$`)
+
+// localAccount finds an active account of this instance by username. It sends no
+// token: lookup is public, and the sign-in scopes don't include read:accounts.
+func (m *mastodon) localAccount(ctx context.Context, username string) (account, error) {
+	var a account
+	if !handlePattern.MatchString(username) {
+		return a, &apiError{Status: http.StatusNotFound}
+	}
+	resp, err := m.do(ctx, m.client, "", http.MethodGet, "/api/v1/accounts/lookup?acct="+url.QueryEscape(username), "", nil, nil)
+	if err != nil {
+		return a, err
+	}
+	if err := decode(resp, &a); err != nil {
+		return a, err
+	}
+	// acct has no domain only for local accounts.
+	if !idPattern.MatchString(a.ID) || a.Suspended || a.Acct == "" || strings.Contains(a.Acct, "@") || !strings.EqualFold(a.Acct, username) {
+		return a, &apiError{Status: http.StatusNotFound}
 	}
 	return a, nil
 }

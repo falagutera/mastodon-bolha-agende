@@ -20,6 +20,9 @@ const (
 	tokenRefs     = "agende:token:"
 	revokeLock    = "agende:revoking:"
 	revokeLockTTL = 2 * time.Minute
+	// "Post as" lives apart from the session, so switching never rewrites the
+	// session itself, which could undo a sign-out happening at the same time.
+	actingKey = "agende:acting:"
 )
 
 var (
@@ -35,6 +38,17 @@ type session struct {
 	Token     string    `json:"-"`
 	Sealed    []byte    `json:"token"`
 	Expires   time.Time `json:"expires"`
+	// ActingAs is the owner chosen in "Post as", read from its own key. It is only
+	// a wish: every request checks the delegation again in the database.
+	ActingAs string `json:"-"`
+
+	// Filled per request by server.resolve, never stored. Post actions use these;
+	// the account's own pages (settings, delegations, sign-out) use the fields above.
+	ActToken   string `json:"-"`
+	TargetID   string `json:"-"`
+	TargetAcct string `json:"-"`
+	Delegated  bool   `json:"-"`
+	Lost       bool   `json:"-"` // the chosen delegation was revoked
 }
 
 type sessions struct {
@@ -75,7 +89,11 @@ func (s *sessions) get(ctx context.Context, id string) (session, error) {
 	if time.Now().After(sess.Expires) {
 		return session{}, errNoSession
 	}
-	sess.ID = id
+	acting, err := s.rdb.Get(ctx, actingKey+hashID(id)).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return session{}, err
+	}
+	sess.ID, sess.ActingAs = id, acting
 	return sess, nil
 }
 
@@ -97,6 +115,23 @@ func (s *sessions) load(ctx context.Context, key string) (session, error) {
 	}
 	sess.Token = string(token)
 	return sess, nil
+}
+
+// setActing records the account chosen in "Post as". Empty means the account itself.
+func (s *sessions) setActing(ctx context.Context, id, ownerID string) error {
+	key := hashID(id)
+	if ownerID == "" {
+		return s.rdb.Del(ctx, actingKey+key).Err()
+	}
+	n, err := s.rdb.Exists(ctx, sessionKey+key).Result()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errNoSession
+	}
+	// Outlives the session at most by the sweep grace, and is removed with it.
+	return s.rdb.Set(ctx, actingKey+key, ownerID, sessionTTL+sweepGrace).Err()
 }
 
 // expire makes a session unusable at once and leaves it for finish to revoke.
@@ -166,7 +201,7 @@ func (s *sessions) finish(ctx context.Context, key string, revoke func(string) e
 	}
 	if _, err := s.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		p.ZRem(ctx, expiryIndex, key)
-		p.Del(ctx, sessionKey+key)
+		p.Del(ctx, sessionKey+key, actingKey+key)
 		return nil
 	}); err != nil {
 		log.Printf("sweep: %v", err)

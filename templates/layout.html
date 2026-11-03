@@ -24,12 +24,20 @@
     <a href="/calendar"{{if eq .Nav "calendar"}} class="on" aria-current="page"{{end}}>{{.T.nav_calendar}}</a>
     <a href="/new"{{if eq .Nav "new"}} class="on" aria-current="page"{{end}}>{{.T.nav_new}}</a>
     <a href="/settings"{{if eq .Nav "settings"}} class="on" aria-current="page"{{end}}>{{.T.nav_settings}}</a>
-    <form method="post" action="/logout" class="logout">
+    <a href="/audit"{{if eq .Nav "audit"}} class="on" aria-current="page"{{end}}>{{.T.nav_audit}}</a>
+{{if .DelegationOn}}    <a href="/delegations"{{if eq .Nav "delegations"}} class="on" aria-current="page"{{end}}>{{.T.nav_delegations}}</a>
+{{end}}    <form method="post" action="/logout" class="logout">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <span class="who">@{{.Acct}}</span> <button type="submit" class="link">{{.T.logout}}</button>
     </form>
   </nav>
-{{end}}</header>
+{{if .Acting}}  <form method="post" action="/acting" class="acting">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>{{.T.post_as}} <select name="account">{{range .Acting}}<option value="{{.ID}}"{{if .On}} selected{{end}}>@{{.Acct}}</option>{{end}}</select></label>
+    <button type="submit" class="link">{{.T.switch}}</button>
+  </form>
+{{end}}{{if .Delegated}}  <p class="acting-as" role="status">{{printf .T.acting_as .TargetAcct}}</p>
+{{end}}{{end}}</header>
 <main>
 {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}

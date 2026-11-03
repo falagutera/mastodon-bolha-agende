@@ -53,7 +53,14 @@ type config struct {
 	dbSSLMode     string
 	redisAddr     string
 	redisPassword string
+	// Delegation is on when all three are set. It uses its own OAuth app, because
+	// Mastodon reuses one token per account and app: signing out would revoke it.
+	delegationClientID     string
+	delegationClientSecret string
+	delegationKey          string
 }
+
+func (c config) delegation() bool { return c.delegationKey != "" }
 
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -83,6 +90,10 @@ func loadConfig() (config, error) {
 		dbSSLMode:     env("AGENDE_DB_SSLMODE", "prefer"),
 		redisAddr:     os.Getenv("AGENDE_REDIS_ADDR"),
 		redisPassword: os.Getenv("AGENDE_REDIS_PASSWORD"),
+
+		delegationClientID:     os.Getenv("AGENDE_DELEGATION_CLIENT_ID"),
+		delegationClientSecret: os.Getenv("AGENDE_DELEGATION_CLIENT_SECRET"),
+		delegationKey:          os.Getenv("AGENDE_DELEGATION_KEY"),
 	}
 	mb, err := strconv.Atoi(env("AGENDE_MAX_UPLOAD_MB", "100"))
 	if err != nil || mb < 1 {
@@ -109,6 +120,22 @@ func loadConfig() (config, error) {
 		return c, fmt.Errorf("AGENDE_DB_HOST and AGENDE_DB_PASSWORD are required")
 	case c.redisAddr == "":
 		return c, fmt.Errorf("AGENDE_REDIS_ADDR is required")
+	}
+	set := 0
+	for _, v := range []string{c.delegationClientID, c.delegationClientSecret, c.delegationKey} {
+		if v != "" {
+			set++
+		}
+	}
+	switch {
+	case set != 0 && set != 3:
+		return c, fmt.Errorf("delegation needs AGENDE_DELEGATION_CLIENT_ID, AGENDE_DELEGATION_CLIENT_SECRET and AGENDE_DELEGATION_KEY together")
+	case set == 3 && len(c.delegationKey) < 32:
+		return c, fmt.Errorf("AGENDE_DELEGATION_KEY must have at least 32 characters")
+	case set == 3 && c.delegationKey == c.encryptionKey:
+		return c, fmt.Errorf("AGENDE_DELEGATION_KEY must differ from AGENDE_ENCRYPTION_KEY")
+	case set == 3 && c.delegationClientID == c.clientID:
+		return c, fmt.Errorf("delegation needs its own OAuth app: AGENDE_DELEGATION_CLIENT_ID must differ from AGENDE_CLIENT_ID")
 	}
 	return c, nil
 }
@@ -140,6 +167,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if cfg.delegation() {
+		if db.delegationBox, err = newBox(cfg.delegationKey, "delegation-token"); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if err := db.check(ctx); err != nil {
 		log.Fatalf("database: %v (was schema.sql applied?)", err)
 	}
@@ -162,7 +194,7 @@ func main() {
 			s.sessions.sweep(ctx, s.revokeToken)
 		}
 	}()
-	log.Printf("agende %s listening on %s for %s", version, cfg.listen, cfg.domain)
+	log.Printf("agende %s listening on %s for %s (delegation %t)", version, cfg.listen, cfg.domain, cfg.delegation())
 	srv := &http.Server{
 		Addr:              cfg.listen,
 		Handler:           s.routes(),

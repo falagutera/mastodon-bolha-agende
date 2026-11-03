@@ -45,7 +45,7 @@ var (
 	visibilities  = []string{"public", "unlisted", "private", "direct"}
 	langPattern   = regexp.MustCompile(`^[a-z]{2,3}$`)
 	allowedMedia  = []string{"image/", "video/", "audio/"}
-	flashMessages = []string{"created", "edited", "rescheduled", "cancelled", "saved"}
+	flashMessages = []string{"created", "edited", "rescheduled", "cancelled", "saved", "delegated", "removed", "removed_unconfirmed", "delegation_lost"}
 )
 
 type server struct {
@@ -93,6 +93,13 @@ func (s *server) current(w http.ResponseWriter, r *http.Request) (sess session, 
 	if errors.Is(err, errNoSession) {
 		s.clearCookie(w, sessionCookie)
 		return session{}, false, false
+	}
+	if err == nil {
+		err = s.resolve(r.Context(), &sess)
+		if errors.Is(err, errNoSession) {
+			s.clearCookie(w, sessionCookie)
+			return session{}, false, false
+		}
 	}
 	if err != nil {
 		log.Printf("session: %v", err)
@@ -193,7 +200,23 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /settings", s.action(s.handleSaveSettings))
 	mux.HandleFunc("POST /preview", s.fetchAction(s.handlePreview))
 	mux.HandleFunc("POST /dates", s.fetchAction(s.handleDates))
+	mux.HandleFunc("GET /audit", s.page(s.handleAudit))
+	if s.cfg.delegation() {
+		mux.HandleFunc("GET /delegations", s.page(s.handleDelegations))
+		mux.HandleFunc("POST /delegations", s.action(s.handleDelegate))
+		mux.HandleFunc("GET /delegations/callback", s.page(s.handleDelegationCallback))
+		mux.HandleFunc("POST /delegations/revoke", s.action(s.handleRevoke))
+		mux.HandleFunc("POST /delegations/leave", s.action(s.handleLeave))
+		mux.HandleFunc("POST /acting", s.action(s.handleActing))
+	}
 	return securityHeaders(mux)
+}
+
+// csp is the page policy. Only form-action varies: the delegations page sends a
+// form that ends at the instance.
+func csp(formAction string) string {
+	return "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action " +
+		formAction + "; frame-ancestors 'none'"
 }
 
 // securityHeaders allows same-origin scripts for the page and the bar the edge
@@ -205,7 +228,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Robots-Tag", "noindex, nofollow")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", csp("'self'"))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -242,6 +265,21 @@ type viewData struct {
 	MaxMedia  []int
 	Expires   []expiryOption
 	Zones     []zoneOption
+
+	// Delegation. TargetAcct is the account posts go out as.
+	DelegationOn   bool
+	TargetID       string
+	TargetAcct     string
+	Delegated      bool
+	Acting         []actOption
+	Granted        []delegation
+	Received       []delegation
+	MaxDelegations int
+
+	Audit         []auditLine
+	AuditAccounts []actOption
+	AuditFilter   auditFilterView
+	AuditActions  []string
 }
 
 type postView struct {
@@ -298,10 +336,15 @@ type seriesResult struct {
 func (s *server) view(r *http.Request, sess session, nav string) viewData {
 	lang := language(r, s.cfg.lang)
 	v := viewData{T: strs(lang), Lang: lang, Version: version, Domain: s.cfg.domain, Acct: sess.Acct, CSRF: sess.CSRF, Nav: nav,
-		Markdown: s.cfg.markdown, LocalOnly: s.cfg.localOnly, Expiring: s.cfg.expiring, MaxSeries: maxSeries}
+		Markdown: s.cfg.markdown, LocalOnly: s.cfg.localOnly, Expiring: s.cfg.expiring, MaxSeries: maxSeries,
+		DelegationOn: s.cfg.delegation(), TargetID: sess.TargetID, TargetAcct: sess.TargetAcct, Delegated: sess.Delegated}
 	if key := r.URL.Query().Get("done"); slices.Contains(flashMessages, key) {
 		v.Flash = v.T["flash_"+key]
 	}
+	if sess.Lost {
+		v.Flash = v.T["flash_delegation_lost"]
+	}
+	v.Acting = s.actOptions(r.Context(), sess)
 	return v
 }
 
@@ -378,8 +421,14 @@ func isSet(v any) bool {
 	}
 }
 
-func (s *server) instanceFailed(w http.ResponseWriter, r *http.Request, err error) {
+func (s *server) instanceFailed(w http.ResponseWriter, r *http.Request, sess session, err error) {
 	var api *apiError
+	if errors.As(err, &api) && api.Status == http.StatusUnauthorized && sess.Delegated {
+		// The owner's token is gone, not this session: drop the delegation only.
+		s.dropLost(r.Context(), sess)
+		http.Redirect(w, r, "/queue?done=delegation_lost", http.StatusSeeOther)
+		return
+	}
 	if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
 		// The token was revoked on the instance: this session is useless.
 		s.clearCookie(w, sessionCookie)
@@ -401,9 +450,9 @@ func (s *server) handleQueue(w http.ResponseWriter, r *http.Request, sess sessio
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	posts, err := s.api.scheduled(r.Context(), sess.Token)
+	posts, err := s.api.scheduled(r.Context(), sess.ActToken)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	sort.Slice(posts, func(i, j int) bool { return posts[i].ScheduledAt.Before(posts[j].ScheduledAt) })
@@ -423,9 +472,9 @@ func (s *server) handleCalendar(w http.ResponseWriter, r *http.Request, sess ses
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	posts, err := s.api.scheduled(r.Context(), sess.Token)
+	posts, err := s.api.scheduled(r.Context(), sess.ActToken)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	now := time.Now().In(loc)
@@ -489,9 +538,9 @@ func (s *server) handleNew(w http.ResponseWriter, r *http.Request, sess session)
 	form := composeForm{Visibility: st.Visibility, Language: st.Language, Timezone: st.Timezone,
 		Plain: st.ContentType != "text/markdown", Frequency: "once", Count: 6, Nonce: randomToken()}
 	if from := r.URL.Query().Get("from"); from != "" {
-		p, err := s.api.scheduledByID(r.Context(), sess.Token, from)
+		p, err := s.api.scheduledByID(r.Context(), sess.ActToken, from)
 		if err != nil {
-			s.instanceFailed(w, r, err)
+			s.instanceFailed(w, r, sess, err)
 			return
 		}
 		form.prefill(p)
@@ -549,9 +598,9 @@ func (s *server) handleEdit(w http.ResponseWriter, r *http.Request, sess session
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	p, err := s.api.scheduledByID(r.Context(), sess.Token, r.PathValue("id"))
+	p, err := s.api.scheduledByID(r.Context(), sess.ActToken, r.PathValue("id"))
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	if !editable(p) {
@@ -566,7 +615,7 @@ func (s *server) handleEdit(w http.ResponseWriter, r *http.Request, sess session
 // still in the queue. A media attachment moves to the new post when it is reused.
 func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, old scheduledStatus, status newStatus, files []upload, key string) error {
 	before, at := old.ScheduledAt, status.ScheduledAt
-	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionEdit, ScheduledID: old.ID, Before: &before, After: &at, Result: resultIntent, Excerpt: status.Text}
 	if err := s.db.audit(ctx, entry); err != nil {
 		return fmt.Errorf("audit: %w", err)
@@ -592,17 +641,17 @@ func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, ol
 			continue
 		}
 		if alt := strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID)); alt != m.Description {
-			if err := s.api.describeMedia(ctx, sess.Token, m.ID, alt); err != nil {
+			if err := s.api.describeMedia(ctx, sess.ActToken, m.ID, alt); err != nil {
 				log.Printf("edit: description: %v", err)
 			}
 		}
 	}
-	cancelEntry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+	cancelEntry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionCancel, ScheduledID: old.ID, Before: &before, Result: resultIntent, Excerpt: old.Params.Text}
 	if err := s.db.audit(ctx, cancelEntry); err != nil {
 		log.Printf("audit: %v", err)
 	}
-	err = s.api.cancel(ctx, sess.Token, old.ID)
+	err = s.api.cancel(ctx, sess.ActToken, old.ID)
 	cancelEntry.Result = outcome(err)
 	s.auditResult(ctx, cancelEntry)
 	if err != nil {
@@ -784,6 +833,10 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusForbidden, "expired")
 		return
 	}
+	if !sameTarget(r, sess) {
+		s.renderError(w, r, http.StatusConflict, "account_changed")
+		return
+	}
 	st, _, err := s.userSettings(r.Context(), sess)
 	if err != nil {
 		log.Printf("settings: %v", err)
@@ -809,9 +862,9 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var old scheduledStatus
 	if form.Edit != "" {
 		// Read with this session's token: another account's post answers 404.
-		old, err = s.api.scheduledByID(r.Context(), sess.Token, form.Edit)
+		old, err = s.api.scheduledByID(r.Context(), sess.ActToken, form.Edit)
 		if err != nil {
-			s.instanceFailed(w, r, err)
+			s.instanceFailed(w, r, sess, err)
 			return
 		}
 		if !editable(old) {
@@ -829,9 +882,9 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	existing, err := s.api.scheduled(r.Context(), sess.Token)
+	existing, err := s.api.scheduled(r.Context(), sess.ActToken)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	existing = slices.DeleteFunc(existing, func(x scheduledStatus) bool { return x.ID == form.Edit })
@@ -959,7 +1012,7 @@ func (s *server) handleResult(w http.ResponseWriter, r *http.Request, sess sessi
 // intent was recorded first.
 func (s *server) createOne(ctx context.Context, sess session, status newStatus, files []upload, key, seriesID string) error {
 	at := status.ScheduledAt
-	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionSchedule, SeriesID: seriesID, After: &at, Result: resultIntent, Excerpt: status.Text}
 	if err := s.db.audit(ctx, entry); err != nil {
 		return fmt.Errorf("audit: %w", err)
@@ -987,7 +1040,7 @@ func (s *server) sendPost(ctx context.Context, sess session, status newStatus, f
 	if time.Until(status.ScheduledAt) < finalLead {
 		return "", errTooSoon
 	}
-	return s.api.schedule(ctx, sess.Token, key, status)
+	return s.api.schedule(ctx, sess.ActToken, key, status)
 }
 
 func (s *server) sendMedia(ctx context.Context, sess session, f upload) (string, error) {
@@ -996,7 +1049,7 @@ func (s *server) sendMedia(ctx context.Context, sess session, f upload) (string,
 		return "", err
 	}
 	defer file.Close()
-	return s.api.uploadMedia(ctx, sess.Token, f.Header.Filename, f.Header.Header.Get("Content-Type"), f.Alt, file)
+	return s.api.uploadMedia(ctx, sess.ActToken, f.Header.Filename, f.Header.Header.Get("Content-Type"), f.Alt, file)
 }
 
 // outcome tells a refusal from an answer that never came: after a timeout the
@@ -1029,9 +1082,9 @@ func (s *server) handlePost(w http.ResponseWriter, r *http.Request, sess session
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	p, err := s.api.scheduledByID(r.Context(), sess.Token, r.PathValue("id"))
+	p, err := s.api.scheduledByID(r.Context(), sess.ActToken, r.PathValue("id"))
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	v := s.view(r, sess, "queue")
@@ -1045,15 +1098,19 @@ func (s *server) handlePost(w http.ResponseWriter, r *http.Request, sess session
 
 func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess session) {
 	id := r.PathValue("id")
+	if !sameTarget(r, sess) {
+		s.renderError(w, r, http.StatusConflict, "account_changed")
+		return
+	}
 	_, loc, err := s.userSettings(r.Context(), sess)
 	if err != nil {
 		log.Printf("settings: %v", err)
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	p, err := s.api.scheduledByID(r.Context(), sess.Token, id)
+	p, err := s.api.scheduledByID(r.Context(), sess.ActToken, id)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	back := func(key string) {
@@ -1064,9 +1121,9 @@ func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess s
 		back(errBadDate.Error())
 		return
 	}
-	existing, err := s.api.scheduled(r.Context(), sess.Token)
+	existing, err := s.api.scheduled(r.Context(), sess.ActToken)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	others := slices.DeleteFunc(existing, func(x scheduledStatus) bool { return x.ID == id })
@@ -1075,18 +1132,18 @@ func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess s
 		return
 	}
 	before := p.ScheduledAt
-	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionReschedule, ScheduledID: id, Before: &before, After: &at, Result: resultIntent, Excerpt: p.Params.Text}
 	if err := s.db.audit(r.Context(), entry); err != nil {
 		log.Printf("audit: %v", err)
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	err = s.api.reschedule(r.Context(), sess.Token, id, at)
+	err = s.api.reschedule(r.Context(), sess.ActToken, id, at)
 	entry.Result = outcome(err)
 	s.auditResult(r.Context(), entry)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	http.Redirect(w, r, "/queue?done=rescheduled", http.StatusSeeOther)
@@ -1094,24 +1151,28 @@ func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess s
 
 func (s *server) handleCancel(w http.ResponseWriter, r *http.Request, sess session) {
 	id := r.PathValue("id")
-	p, err := s.api.scheduledByID(r.Context(), sess.Token, id)
+	if !sameTarget(r, sess) {
+		s.renderError(w, r, http.StatusConflict, "account_changed")
+		return
+	}
+	p, err := s.api.scheduledByID(r.Context(), sess.ActToken, id)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	before := p.ScheduledAt
-	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.AccountID, TargetAcct: sess.Acct,
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionCancel, ScheduledID: id, Before: &before, Result: resultIntent, Excerpt: p.Params.Text}
 	if err := s.db.audit(r.Context(), entry); err != nil {
 		log.Printf("audit: %v", err)
 		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
-	err = s.api.cancel(r.Context(), sess.Token, id)
+	err = s.api.cancel(r.Context(), sess.ActToken, id)
 	entry.Result = outcome(err)
 	s.auditResult(r.Context(), entry)
 	if err != nil {
-		s.instanceFailed(w, r, err)
+		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	http.Redirect(w, r, "/queue?done=cancelled", http.StatusSeeOther)

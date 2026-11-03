@@ -1,0 +1,28 @@
+{{template "head" .}}
+<h1>{{.T.audit_title}}</h1>
+<p class="note">{{.T.audit_scope}} {{.T.timezone_note}} {{.Settings.Timezone}}.</p>
+<form method="get" action="/audit" class="filters">
+  <label>{{.T.audit_account}} <select name="account">
+    <option value="">{{.T.audit_all}}</option>
+{{range .AuditAccounts}}    <option value="{{.ID}}"{{if .On}} selected{{end}}>@{{.Acct}}</option>
+{{end}}  </select></label>
+  <label>{{.T.audit_action}} <select name="action">
+    <option value="">{{.T.audit_all}}</option>
+{{range .AuditActions}}    <option value="{{.}}"{{if eq . $.AuditFilter.Action}} selected{{end}}>{{index $.T (printf "audit_filter_%s" .)}}</option>
+{{end}}  </select></label>
+  <label>{{.T.audit_from}} <input type="date" name="from" value="{{.AuditFilter.From}}"></label>
+  <label>{{.T.audit_to}} <input type="date" name="to" value="{{.AuditFilter.To}}"></label>
+  <button type="submit" class="button">{{.T.audit_apply}}</button>
+</form>
+{{if .Audit}}<ul class="audit">
+{{range .Audit}}  <li>
+    <span class="when">{{.When}}</span>
+    <span class="text">{{.Text}}</span>
+    {{if .Status}}<span class="status{{if .Warning}} warn{{end}}">{{.Status}}</span>{{end}}
+  </li>
+{{end}}</ul>
+{{else}}<p>{{.T.audit_empty}}</p>
+{{end}}
+<p class="links">{{if .AuditFilter.Paged}}<a href="/audit">{{.T.audit_newest}}</a> {{end}}{{if .Next}}<a href="{{.Next}}">{{.T.audit_older}}</a>{{end}}</p>
+<p class="note">{{.T.audit_limit}}</p>
+{{template "foot" .}}
