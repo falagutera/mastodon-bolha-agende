@@ -51,6 +51,14 @@
   </div>
 {{if .Form.Edit}}  <input type="hidden" name="frequency" id="frequency" value="once">
   <input type="hidden" name="count" id="count" value="2">
+{{if .Siblings}}  <fieldset class="siblings">
+    <legend>{{printf .T.siblings_found (len .Siblings)}}</legend>
+    <p class="note">{{range $i, $d := .Siblings}}{{if $i}} · {{end}}{{$d}}{{end}}</p>
+    <label class="check"><input type="radio" name="scope" value="one"{{if ne .Form.Scope "future"}} checked{{end}}> {{.T.scope_one}}</label>
+    <label class="check"><input type="radio" name="scope" value="future"{{if eq .Form.Scope "future"}} checked{{end}}> {{printf .T.scope_future (len .Siblings)}}</label>
+    <p class="note">{{.T.scope_note}}</p>
+  </fieldset>
+{{end}}
 {{else}}  <div class="grid">
     <label>{{.T.repeat}}
       <select name="frequency" id="frequency">

@@ -45,7 +45,7 @@ var (
 	visibilities  = []string{"public", "unlisted", "private", "direct"}
 	langPattern   = regexp.MustCompile(`^[a-z]{2,3}$`)
 	allowedMedia  = []string{"image/", "video/", "audio/"}
-	flashMessages = []string{"created", "edited", "rescheduled", "cancelled", "saved", "delegated", "removed", "removed_unconfirmed", "delegation_lost"}
+	flashMessages = []string{"created", "edited", "edited_all", "rescheduled", "cancelled", "saved", "delegated", "removed", "removed_unconfirmed", "delegation_lost"}
 )
 
 type server struct {
@@ -265,6 +265,7 @@ type viewData struct {
 	MaxMedia  []int
 	Expires   []expiryOption
 	Zones     []zoneOption
+	Siblings  []string // dates of later posts with the same text, when editing
 
 	// Delegation. TargetAcct is the account posts go out as.
 	DelegationOn   bool
@@ -320,6 +321,7 @@ type composeForm struct {
 	Edit       string
 	Sensitive  bool
 	Kept       []keptMedia
+	Scope      string // "future" also edits the later posts with the same text
 }
 
 type keptMedia struct {
@@ -518,7 +520,39 @@ func (s *server) composeView(r *http.Request, sess session, st settings, form co
 	for _, sec := range v.Limits.Expirations {
 		v.Expires = append(v.Expires, expiryOption{Seconds: sec, Label: expiryLabel(sec, v.T), On: sec == form.ExpiresIn})
 	}
+	if form.Edit != "" {
+		if posts, err := s.api.scheduled(r.Context(), sess.ActToken); err == nil {
+			if i := slices.IndexFunc(posts, func(p scheduledStatus) bool { return p.ID == form.Edit }); i >= 0 {
+				loc, err := time.LoadLocation(form.Timezone)
+				if err != nil {
+					loc = time.UTC
+				}
+				for _, sib := range siblings(posts, posts[i]) {
+					v.Siblings = append(v.Siblings, sib.ScheduledAt.In(loc).Format(v.T["date_format"]))
+				}
+			}
+		}
+	}
 	return v
+}
+
+// siblings are the later posts with exactly the same text as p: a series made
+// here, or repeated by hand. Edits may apply to them too.
+func siblings(posts []scheduledStatus, p scheduledStatus) []scheduledStatus {
+	var out []scheduledStatus
+	if strings.TrimSpace(p.Params.Text) == "" {
+		return out
+	}
+	for _, x := range posts {
+		if x.ID != p.ID && x.Params.Text == p.Params.Text && x.ScheduledAt.After(p.ScheduledAt) && editable(x) {
+			out = append(out, x)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ScheduledAt.Before(out[j].ScheduledAt) })
+	if len(out) > maxSeries {
+		out = out[:maxSeries]
+	}
+	return out
 }
 
 func expiryLabel(sec int, t map[string]string) string {
@@ -613,7 +647,20 @@ func (s *server) handleEdit(w http.ResponseWriter, r *http.Request, sess session
 // saveEdit replaces a scheduled post. Mastodon can't change one, so it creates the
 // new post first and only then cancels the old: if anything fails, the old one is
 // still in the queue. A media attachment moves to the new post when it is reused.
-func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, old scheduledStatus, status newStatus, files []upload, key string) error {
+// keepMedia says whether an attachment of the old post moves to the new one, and
+// with which description.
+type keepMedia func(m mediaAttachment) (keep bool, alt string)
+
+func formKeep(r *http.Request) keepMedia {
+	return func(m mediaAttachment) (bool, string) {
+		return r.PostFormValue("keep_"+m.ID) != "", strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID))
+	}
+}
+
+// keepAll is for the later posts of an edit: each keeps its own attachments.
+func keepAll(m mediaAttachment) (bool, string) { return true, m.Description }
+
+func (s *server) saveEdit(ctx context.Context, sess session, keep keepMedia, old scheduledStatus, status newStatus, files []upload, key string) error {
 	before, at := old.ScheduledAt, status.ScheduledAt
 	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
 		Action: actionEdit, ScheduledID: old.ID, Before: &before, After: &at, Result: resultIntent, Excerpt: status.Text}
@@ -621,7 +668,7 @@ func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, ol
 		return fmt.Errorf("audit: %w", err)
 	}
 	for _, m := range old.Media {
-		if r.PostFormValue("keep_"+m.ID) != "" {
+		if k, _ := keep(m); k {
 			status.MediaIDs = append(status.MediaIDs, m.ID)
 		}
 	}
@@ -637,10 +684,11 @@ func (s *server) saveEdit(ctx context.Context, sess session, r *http.Request, ol
 	entry.ScheduledID, entry.Result = id, resultOK
 	s.auditResult(ctx, entry)
 	for _, m := range old.Media {
-		if r.PostFormValue("keep_"+m.ID) == "" {
+		k, alt := keep(m)
+		if !k {
 			continue
 		}
-		if alt := strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID)); alt != m.Description {
+		if alt != m.Description {
 			if err := s.api.describeMedia(ctx, sess.ActToken, m.ID, alt); err != nil {
 				log.Printf("edit: description: %v", err)
 			}
@@ -676,6 +724,7 @@ func (r *composeForm) load(req *http.Request) {
 	r.Nonce = req.PostFormValue("nonce")
 	r.Edit = req.PostFormValue("edit_id")
 	r.Sensitive = req.PostFormValue("sensitive") != ""
+	r.Scope = req.PostFormValue("scope")
 }
 
 type upload struct {
@@ -906,7 +955,11 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if form.Edit != "" {
 		status.ScheduledAt = dates[0]
-		err := s.saveEdit(r.Context(), sess, r, old, status, files, form.Nonce+":0")
+		err := s.saveEdit(r.Context(), sess, formKeep(r), old, status, files, form.Nonce+":0")
+		if err == nil && form.Scope == "future" {
+			s.editLater(w, r, sess, old, status, existing, form.Nonce)
+			return
+		}
 		if err == nil {
 			http.Redirect(w, r, "/queue?done=edited", http.StatusSeeOther)
 			return
@@ -968,6 +1021,39 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.saveResult(r.Context(), sess, form.Nonce, resultPage{Error: v.Error, Results: v.Results})
 	http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther)
+}
+
+// editLater applies an edit to the later posts with the same text. Each keeps its
+// own date and attachments; new files only went to the post being edited.
+func (s *server) editLater(w http.ResponseWriter, r *http.Request, sess session, old scheduledStatus, status newStatus, existing []scheduledStatus, nonce string) {
+	sibs := siblings(append(existing, old), old)
+	if len(sibs) == 0 {
+		http.Redirect(w, r, "/queue?done=edited", http.StatusSeeOther)
+		return
+	}
+	v := s.view(r, sess, "new")
+	_, loc, err := s.userSettings(r.Context(), sess)
+	if err != nil {
+		loc = time.UTC
+	}
+	failed := 0
+	for i, sib := range sibs {
+		next := status
+		next.ScheduledAt, next.MediaIDs = sib.ScheduledAt, nil
+		res := seriesResult{When: sib.ScheduledAt.In(loc).Format(v.T["date_format"]), OK: true}
+		if err := s.saveEdit(r.Context(), sess, keepAll, sib, next, nil, nonce+":"+strconv.Itoa(i+1)); err != nil {
+			log.Printf("edit later: %v", err)
+			res.OK = false
+			failed++
+		}
+		v.Results = append(v.Results, res)
+	}
+	if failed == 0 {
+		http.Redirect(w, r, "/queue?done=edited_all", http.StatusSeeOther)
+		return
+	}
+	s.saveResult(r.Context(), sess, nonce, resultPage{Error: v.T["form_later_partial"], Results: v.Results})
+	http.Redirect(w, r, s.resultPath(sess, nonce), http.StatusSeeOther)
 }
 
 type resultPage struct {
