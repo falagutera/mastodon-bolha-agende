@@ -878,6 +878,14 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusBadRequest, "bad_form")
 		return
 	}
+	// The multipart parse ran on this context-bound copy, so the net/http server's
+	// own cleanup never removes the temp files it created for uploads over 1 MiB.
+	// Remove them here, or every such upload leaks a file into the tmpfs /tmp.
+	defer func() {
+		if r.MultipartForm != nil {
+			r.MultipartForm.RemoveAll()
+		}
+	}()
 	if !csrfOK(sess, r.PostFormValue("csrf")) {
 		s.renderError(w, r, http.StatusForbidden, "expired")
 		return
