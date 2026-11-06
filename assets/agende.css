@@ -70,3 +70,14 @@ button.link { background: none; border: 0; color: inherit; text-decoration: unde
 .audit .text { flex: 1 1 20rem; overflow-wrap: anywhere; }
 .audit .status { color: var(--muted); }
 .audit .status.warn { color: #e08a83; }
+
+/* release notes (shared relnotes markup) */
+.toplinks { display: flex; align-items: center; gap: 1rem; }
+.notes-link.on { font-weight: 600; color: var(--ink); text-decoration: underline; }
+.relnotes .release { margin: 1.4rem 0; padding-top: .8rem; border-top: 1px solid var(--line, rgba(127,127,127,.25)); }
+.relnotes h2 { margin: 0 0 .3rem; font-size: 1.15rem; }
+.relnotes .when { color: var(--muted); font-weight: 400; font-size: .85rem; }
+.relnotes h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .8rem 0 .2rem; }
+.relnotes .summary { margin: .2rem 0 .4rem; }
+.relnotes ul { margin: .3rem 0 .6rem; padding-left: 1.2rem; }
+.relnotes li { margin: .25rem 0; }

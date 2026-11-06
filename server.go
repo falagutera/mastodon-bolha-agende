@@ -23,6 +23,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/yuin/goldmark"
+	"gitlab.gutocarvalho.net/open/bolha/agende/internal/relnotes"
 )
 
 var errOldNotCancelled = errors.New("old post not cancelled")
@@ -187,6 +188,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /logout", s.action(s.handleLogout))
 	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /release-notes", s.handleNotes)
+	mux.Handle("GET /release-notes.json", relnotes.JSONHandler("agende", version, releases))
 	mux.HandleFunc("GET /queue", s.page(s.handleQueue))
 	mux.HandleFunc("GET /calendar", s.page(s.handleCalendar))
 	mux.HandleFunc("GET /new", s.page(s.handleNew))
@@ -281,6 +284,8 @@ type viewData struct {
 	AuditAccounts []actOption
 	AuditFilter   auditFilterView
 	AuditActions  []string
+
+	Releases template.HTML // release notes page
 }
 
 type postView struct {
@@ -377,6 +382,23 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "index.html", http.StatusOK, s.view(r, session{}, ""))
+}
+
+// handleNotes is public: signed-in visitors keep their menu.
+func (s *server) handleNotes(w http.ResponseWriter, r *http.Request) {
+	if q := r.URL.Query().Get("lang"); q != "" {
+		setLanguage(w, q)
+	}
+	sess, ok, failed := s.current(w, r)
+	if failed {
+		return
+	}
+	if !ok {
+		sess = session{}
+	}
+	v := s.view(r, sess, "notes")
+	v.Releases = relnotes.HTML(releases)
+	s.render(w, "notes.html", http.StatusOK, v)
 }
 
 func (s *server) defaults() settings {

@@ -10,7 +10,7 @@ const langCookie = "__Host-agende-lang"
 
 var translations = map[string]map[string]string{
 	"en": {
-		"lang": "en", "language": "Language", "title": "Agende",
+		"lang": "en", "nav_notes": "Release notes", "notes_title": "Release notes", "notes_lede": "What changed in each version.", "language": "Language", "title": "Agende",
 		"lede":      "Schedule your posts on %s. The instance stores and publishes them, so they go out even if this site is down.",
 		"login":     "Sign in with your account",
 		"privacy":   "Your access token stays encrypted during your session and is revoked when you sign out or after 8 hours. Posts stay on the instance. Your unsent draft stays unencrypted in this browser for up to 7 days, or until you schedule it or sign out. Your settings and a log of your actions are kept here, with up to 80 encrypted characters of the text, even from private posts.",
@@ -75,7 +75,7 @@ var translations = map[string]map[string]string{
 		"source": "Source code", "credit": "Based on mastodon-post-scheduler",
 	},
 	"pt-BR": {
-		"lang": "pt-BR", "language": "Idioma", "title": "Agende",
+		"lang": "pt-BR", "nav_notes": "Novidades", "notes_title": "Novidades", "notes_lede": "O que mudou em cada versão.", "language": "Idioma", "title": "Agende",
 		"lede":      "Agende seus posts em %s. A instância guarda e publica, então eles saem mesmo se este site estiver fora do ar.",
 		"login":     "Entrar com sua conta",
 		"privacy":   "Seu token de acesso fica cifrado durante a sessão e é revogado quando você sai ou depois de 8 horas. O post fica na instância. O rascunho não enviado fica sem cifragem neste navegador por até 7 dias, ou até você agendar ou sair. Aqui ficam suas configurações e um registro das suas ações com até 80 caracteres cifrados do texto, mesmo de posts privados.",
