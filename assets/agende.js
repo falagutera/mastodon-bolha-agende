@@ -25,6 +25,18 @@
   if (logout) {
     logout.addEventListener('submit', function () { localStorage.removeItem(draftKey); });
   }
+  // Queue page: tick every post at once, and confirm before canceling.
+  const bulk = document.getElementById('bulk');
+  if (bulk) {
+    const all = document.getElementById('select-all');
+    const boxes = bulk.querySelectorAll('input[name="id"]');
+    all.addEventListener('change', function () {
+      boxes.forEach(function (b) { b.checked = all.checked; });
+    });
+    bulk.addEventListener('submit', function (ev) {
+      if (!window.confirm(bulk.dataset.confirm)) ev.preventDefault();
+    });
+  }
   const form = document.getElementById('compose');
   if (!form) return;
   const csrf = form.dataset.csrf;

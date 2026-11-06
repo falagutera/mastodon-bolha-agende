@@ -46,7 +46,7 @@ var (
 	visibilities  = []string{"public", "unlisted", "private", "direct"}
 	langPattern   = regexp.MustCompile(`^[a-z]{2,3}$`)
 	allowedMedia  = []string{"image/", "video/", "audio/"}
-	flashMessages = []string{"created", "edited", "edited_all", "rescheduled", "cancelled", "saved", "delegated", "removed", "removed_unconfirmed", "delegation_lost"}
+	flashMessages = []string{"created", "edited", "edited_all", "rescheduled", "cancelled", "cancelled_many", "saved", "delegated", "removed", "removed_unconfirmed", "delegation_lost"}
 )
 
 type server struct {
@@ -199,6 +199,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /post/{id}/edit", s.page(s.handleEdit))
 	mux.HandleFunc("POST /post/{id}/date", s.action(s.handleReschedule))
 	mux.HandleFunc("POST /post/{id}/cancel", s.action(s.handleCancel))
+	mux.HandleFunc("POST /cancel", s.action(s.handleCancelMany))
 	mux.HandleFunc("GET /settings", s.page(s.handleSettings))
 	mux.HandleFunc("POST /settings", s.action(s.handleSaveSettings))
 	mux.HandleFunc("POST /preview", s.fetchAction(s.handlePreview))
@@ -269,6 +270,7 @@ type viewData struct {
 	Expires   []expiryOption
 	Zones     []zoneOption
 	Siblings  []string // dates of later posts with the same text, when editing
+	SameText  int      // later posts with the same text, on the post page
 
 	// Delegation. TargetAcct is the account posts go out as.
 	DelegationOn   bool
@@ -483,6 +485,9 @@ func (s *server) handleQueue(w http.ResponseWriter, r *http.Request, sess sessio
 	v := s.view(r, sess, "queue")
 	v.Settings = st
 	v.Remaining = totalLimit - len(posts)
+	if q := r.URL.Query().Get("error"); q == "none_selected" || q == "cancel_partial" {
+		v.Error = v.T["form_"+q]
+	}
 	for _, p := range posts {
 		v.Posts = append(v.Posts, s.describe(p, loc, v.T["date_format"]))
 	}
@@ -1206,6 +1211,9 @@ func (s *server) handlePost(w http.ResponseWriter, r *http.Request, sess session
 	v := s.view(r, sess, "queue")
 	v.Settings = st
 	v.Post = s.describe(p, loc, v.T["date_format"])
+	if posts, err := s.api.scheduled(r.Context(), sess.ActToken); err == nil {
+		v.SameText = len(sameTextLater(posts, p))
+	}
 	if q := r.URL.Query().Get("error"); q != "" && slices.Contains([]string{"too_soon", "daily_limit", "bad_date"}, q) {
 		v.Error = v.T["form_"+q]
 	}
@@ -1271,27 +1279,125 @@ func (s *server) handleCancel(w http.ResponseWriter, r *http.Request, sess sessi
 		s.renderError(w, r, http.StatusConflict, "account_changed")
 		return
 	}
+	if r.PostFormValue("scope") == "future" {
+		posts, err := s.api.scheduled(r.Context(), sess.ActToken)
+		if err != nil {
+			s.instanceFailed(w, r, sess, err)
+			return
+		}
+		i := slices.IndexFunc(posts, func(p scheduledStatus) bool { return p.ID == id })
+		if i < 0 {
+			s.renderError(w, r, http.StatusNotFound, "not_found")
+			return
+		}
+		s.cancelAll(w, r, sess, append([]scheduledStatus{posts[i]}, sameTextLater(posts, posts[i])...))
+		return
+	}
 	p, err := s.api.scheduledByID(r.Context(), sess.ActToken, id)
 	if err != nil {
 		s.instanceFailed(w, r, sess, err)
 		return
 	}
-	before := p.ScheduledAt
-	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
-		Action: actionCancel, ScheduledID: id, Before: &before, Result: resultIntent, Excerpt: p.Params.Text}
-	if err := s.db.audit(r.Context(), entry); err != nil {
-		log.Printf("audit: %v", err)
-		s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
-		return
-	}
-	err = s.api.cancel(r.Context(), sess.ActToken, id)
-	entry.Result = outcome(err)
-	s.auditResult(r.Context(), entry)
-	if err != nil {
+	if err := s.cancelOne(r.Context(), sess, p); err != nil {
+		if errors.Is(err, errAudit) {
+			s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
+			return
+		}
 		s.instanceFailed(w, r, sess, err)
 		return
 	}
 	http.Redirect(w, r, "/queue?done=cancelled", http.StatusSeeOther)
+}
+
+// handleCancelMany cancels the posts ticked on the queue page. IDs that are no
+// longer in the queue (already published or canceled) are skipped.
+func (s *server) handleCancelMany(w http.ResponseWriter, r *http.Request, sess session) {
+	if !sameTarget(r, sess) {
+		s.renderError(w, r, http.StatusConflict, "account_changed")
+		return
+	}
+	ids := r.PostForm["id"]
+	if len(ids) == 0 {
+		http.Redirect(w, r, "/queue?error=none_selected", http.StatusSeeOther)
+		return
+	}
+	if len(ids) > totalLimit {
+		ids = ids[:totalLimit]
+	}
+	posts, err := s.api.scheduled(r.Context(), sess.ActToken)
+	if err != nil {
+		s.instanceFailed(w, r, sess, err)
+		return
+	}
+	var picked []scheduledStatus
+	for _, p := range posts {
+		if slices.Contains(ids, p.ID) {
+			picked = append(picked, p)
+		}
+	}
+	s.cancelAll(w, r, sess, picked)
+}
+
+var errAudit = errors.New("audit unavailable")
+
+// cancelOne cancels a scheduled post, with the intent logged before the call.
+func (s *server) cancelOne(ctx context.Context, sess session, p scheduledStatus) error {
+	before := p.ScheduledAt
+	entry := auditEntry{OpID: randomToken()[:22], ActorID: sess.AccountID, ActorAcct: sess.Acct, TargetID: sess.TargetID, TargetAcct: sess.TargetAcct,
+		Action: actionCancel, ScheduledID: p.ID, Before: &before, Result: resultIntent, Excerpt: p.Params.Text}
+	if err := s.db.audit(ctx, entry); err != nil {
+		log.Printf("audit: %v", err)
+		return errAudit
+	}
+	err := s.api.cancel(ctx, sess.ActToken, p.ID)
+	entry.Result = outcome(err)
+	s.auditResult(ctx, entry)
+	return err
+}
+
+// cancelAll cancels the posts one by one and stops at the first failure, so a
+// revoked token or an instance outage doesn't produce a long list of errors.
+func (s *server) cancelAll(w http.ResponseWriter, r *http.Request, sess session, posts []scheduledStatus) {
+	done := 0
+	for _, p := range posts {
+		err := s.cancelOne(r.Context(), sess, p)
+		var api *apiError
+		if errors.As(err, &api) && api.Status == http.StatusNotFound {
+			continue // published or canceled meanwhile
+		}
+		if err != nil {
+			if done == 0 {
+				if errors.Is(err, errAudit) {
+					s.renderError(w, r, http.StatusServiceUnavailable, "unavailable")
+					return
+				}
+				s.instanceFailed(w, r, sess, err)
+				return
+			}
+			log.Printf("cancel many: %v", err)
+			http.Redirect(w, r, "/queue?error=cancel_partial", http.StatusSeeOther)
+			return
+		}
+		done++
+	}
+	http.Redirect(w, r, "/queue?done=cancelled_many", http.StatusSeeOther)
+}
+
+// sameTextLater lists every later post with exactly the same text as p, to
+// cancel a whole series at once. Unlike siblings, it isn't capped and includes
+// posts that can't be edited here.
+func sameTextLater(posts []scheduledStatus, p scheduledStatus) []scheduledStatus {
+	var out []scheduledStatus
+	if strings.TrimSpace(p.Params.Text) == "" {
+		return out
+	}
+	for _, x := range posts {
+		if x.ID != p.ID && x.Params.Text == p.Params.Text && x.ScheduledAt.After(p.ScheduledAt) {
+			out = append(out, x)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ScheduledAt.Before(out[j].ScheduledAt) })
+	return out
 }
 
 func (s *server) handleSettings(w http.ResponseWriter, r *http.Request, sess session) {

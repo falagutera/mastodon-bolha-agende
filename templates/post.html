@@ -20,7 +20,9 @@
 <form method="post" action="/post/{{.Post.ID}}/cancel" class="danger">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="as" value="{{.TargetID}}">
-  <p class="note">{{.T.cancel_confirm}}</p>
+{{if .SameText}}  <label class="check"><input type="radio" name="scope" value="one" checked> {{.T.cancel_scope_one}}</label>
+  <label class="check"><input type="radio" name="scope" value="future"> {{printf .T.cancel_scope_future .SameText}}</label>
+{{end}}  <p class="note">{{.T.cancel_confirm}}</p>
   <button type="submit" class="button">{{.T.cancel}}</button>
 </form>
 {{template "foot" .}}

@@ -21,6 +21,9 @@ button.link { background: none; border: 0; color: inherit; text-decoration: unde
 .alert { border-color: #c2554d; }
 .posts { list-style: none; padding: 0; }
 .posts li { padding: .9rem 0; border-bottom: 1px solid var(--line); }
+.posts .pick { margin-right: .5rem; }
+.posts .pick input, .bulkbar input { width: 1.1rem; height: 1.1rem; vertical-align: middle; }
+.bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
 .when { font-weight: 600; }
 .text { margin: .3rem 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; }
 .text.full { max-height: none; }

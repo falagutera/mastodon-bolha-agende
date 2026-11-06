@@ -3,6 +3,12 @@
 All notable changes to agende. Versions follow [SemVer](https://semver.org/); images are
 published as `registry.gutocarvalho.net/images/agende:<version>-<build>`.
 
+## 0.4.0 — 2026-11-06
+
+- Cancel many posts at once: tick them in the queue (or "Select all") and press "Cancel selected".
+- A post's page offers to cancel it together with every later post that has the same text, as editing already did.
+- Each canceled post is in the activity log, as before.
+
 ## 0.3.2 — 2026-11-06
 
 - Release notes page, linked from the top of every page, and the same data at `/release-notes.json`.

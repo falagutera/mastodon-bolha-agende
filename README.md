@@ -4,6 +4,7 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 
 - Full composer: Markdown, media with descriptions, content warnings, visibility, language, replies
 - Queue, weekly and monthly calendar, change date, cancel, duplicate
+- Cancel in bulk: selected posts from the queue, or a post and the later ones with the same text
 - Repeat daily, weekly or monthly: creates up to 24 regular scheduled posts at once
 - Editing a post finds the later posts with exactly the same text, and offers to change them too: each keeps its own date and files
 - Optional self-destruct and instance-only posts, for forks that support them

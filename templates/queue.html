@@ -1,8 +1,16 @@
 {{template "head" .}}
 <h1>{{.T.queue_title}}</h1>
 <p class="note">{{.T.timezone_note}} {{.Settings.Timezone}} · {{.Remaining}} {{.T.remaining}}</p>
-{{if .Posts}}<ul class="posts">
+{{if .Posts}}<form method="post" action="/cancel" id="bulk" data-confirm="{{.T.cancel_many_confirm}}">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="as" value="{{.TargetID}}">
+  <p class="bulkbar">
+    <label class="check"><input type="checkbox" id="select-all"> {{.T.select_all}}</label>
+    <button type="submit" class="button">{{.T.cancel_selected}}</button>
+  </p>
+  <ul class="posts">
 {{range .Posts}}  <li>
+    <label class="pick"><input type="checkbox" name="id" value="{{.ID}}" aria-label="{{$.T.select_post}} {{.When}}"></label>
     <a class="when" href="/post/{{.ID}}">{{.When}}</a>
     <p class="text">{{if .CW}}<strong>{{.CW}}</strong> {{end}}{{.Text}}</p>
     <p class="tags">
@@ -13,6 +21,8 @@
       {{if .Markdown}}<span>{{$.T.markdown}}</span>{{end}}
     </p>
   </li>
-{{end}}</ul>
+{{end}}  </ul>
+  <p class="note">{{.T.cancel_confirm}}</p>
+</form>
 {{else}}<p>{{.T.queue_empty}}</p>{{end}}
 {{template "foot" .}}
