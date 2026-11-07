@@ -131,7 +131,7 @@ func (s *server) resolve(ctx context.Context, sess *session) error {
 // "Post as" changed in another tab, the form is refused instead of posting as the
 // wrong account.
 func sameTarget(r *http.Request, sess session) bool {
-	return subtle.ConstantTimeCompare([]byte(r.PostFormValue("as")), []byte(sess.TargetID)) == 1
+	return subtle.ConstantTimeCompare([]byte(r.PostForm.Get("as")), []byte(sess.TargetID)) == 1
 }
 
 // dropLost forgets a delegation whose token the instance no longer accepts: the
@@ -226,7 +226,7 @@ func (s *server) handleDelegate(w http.ResponseWriter, r *http.Request, sess ses
 	back := func(key string) {
 		http.Redirect(w, r, "/delegations?error="+url.QueryEscape(key), http.StatusSeeOther)
 	}
-	name, ok := normalizeHandle(r.PostFormValue("handle"), s.cfg.domain)
+	name, ok := normalizeHandle(r.PostForm.Get("handle"), s.cfg.domain)
 	if !ok {
 		back("remote")
 		return
@@ -391,7 +391,7 @@ func (s *server) removeDelegation(ctx context.Context, ownerID, delegateID strin
 
 // handleRevoke is the owner taking access away from a delegate.
 func (s *server) handleRevoke(w http.ResponseWriter, r *http.Request, sess session) {
-	delegate := r.PostFormValue("delegate")
+	delegate := r.PostForm.Get("delegate")
 	if !idPattern.MatchString(delegate) {
 		s.renderError(w, r, http.StatusNotFound, "not_found")
 		return
@@ -402,7 +402,7 @@ func (s *server) handleRevoke(w http.ResponseWriter, r *http.Request, sess sessi
 
 // handleLeave is the delegate giving up access to an owner.
 func (s *server) handleLeave(w http.ResponseWriter, r *http.Request, sess session) {
-	owner := r.PostFormValue("owner")
+	owner := r.PostForm.Get("owner")
 	if !idPattern.MatchString(owner) {
 		s.renderError(w, r, http.StatusNotFound, "not_found")
 		return
@@ -441,7 +441,7 @@ func (s *server) afterRemove(w http.ResponseWriter, r *http.Request, sess sessio
 // handleActing switches "Post as". The choice is checked here and again on every
 // request, and the token is confirmed with the instance before it is used.
 func (s *server) handleActing(w http.ResponseWriter, r *http.Request, sess session) {
-	owner := r.PostFormValue("account")
+	owner := r.PostForm.Get("account")
 	if owner == "" || owner == sess.AccountID {
 		if err := s.sessions.setActing(r.Context(), sess.ID, ""); err != nil {
 			log.Printf("acting: %v", err)

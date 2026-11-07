@@ -3,6 +3,14 @@
 All notable changes to agende. Versions follow [SemVer](https://semver.org/); images are
 published as `registry.gutocarvalho.net/images/agende:<version>-<build>`.
 
+## 0.4.1 — 2026-11-07
+
+Hardening from the updated linters.
+
+- Form handlers read the form their guard already size-limited and parsed, instead of parsing it again on their own.
+- Ids sent to the instance are path-escaped.
+- The image declares its non-root user (65532) explicitly.
+
 ## 0.4.0 — 2026-11-06
 
 - Cancel many posts at once: tick them in the queue (or "Select all") and press "Cancel selected".

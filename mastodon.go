@@ -96,7 +96,7 @@ type newStatus struct {
 }
 
 func (m *mastodon) do(ctx context.Context, client *http.Client, token, method, path, kind string, headers map[string]string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, m.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, m.base+path, body) // #nosec G704 -- m.base is the configured instance; ids are path-escaped
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (m *mastodon) do(ctx context.Context, client *http.Client, token, method, p
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	return client.Do(req)
+	return client.Do(req) // #nosec G704 -- requests only go to the configured instance; ids are path-escaped
 }
 
 // decode fills out from a response and turns error statuses into apiError.
@@ -242,7 +242,7 @@ func (m *mastodon) scheduledByID(ctx context.Context, token, id string) (schedul
 	if !idPattern.MatchString(id) {
 		return out, &apiError{Status: http.StatusNotFound}
 	}
-	resp, err := m.do(ctx, m.client, token, http.MethodGet, "/api/v1/scheduled_statuses/"+id, "", nil, nil)
+	resp, err := m.do(ctx, m.client, token, http.MethodGet, "/api/v1/scheduled_statuses/"+url.PathEscape(id), "", nil, nil)
 	if err != nil {
 		return out, err
 	}
@@ -304,7 +304,7 @@ func (m *mastodon) schedule(ctx context.Context, token, key string, s newStatus)
 
 func (m *mastodon) reschedule(ctx context.Context, token, id string, at time.Time) error {
 	form := url.Values{"scheduled_at": {at.UTC().Format(time.RFC3339)}}
-	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/scheduled_statuses/"+id,
+	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/scheduled_statuses/"+url.PathEscape(id),
 		"application/x-www-form-urlencoded", nil, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -315,7 +315,7 @@ func (m *mastodon) reschedule(ctx context.Context, token, id string, at time.Tim
 // describeMedia changes the description of an attachment.
 func (m *mastodon) describeMedia(ctx context.Context, token, id, alt string) error {
 	form := url.Values{"description": {alt}}
-	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/media/"+id,
+	resp, err := m.do(ctx, m.client, token, http.MethodPut, "/api/v1/media/"+url.PathEscape(id),
 		"application/x-www-form-urlencoded", nil, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -324,7 +324,7 @@ func (m *mastodon) describeMedia(ctx context.Context, token, id, alt string) err
 }
 
 func (m *mastodon) cancel(ctx context.Context, token, id string) error {
-	resp, err := m.do(ctx, m.client, token, http.MethodDelete, "/api/v1/scheduled_statuses/"+id, "", nil, nil)
+	resp, err := m.do(ctx, m.client, token, http.MethodDelete, "/api/v1/scheduled_statuses/"+url.PathEscape(id), "", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -363,7 +363,7 @@ func (m *mastodon) uploadMedia(ctx context.Context, token, name, kind, alt strin
 			return "", ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
-		resp, err := m.do(ctx, m.client, token, http.MethodGet, "/api/v1/media/"+out.ID, "", nil, nil)
+		resp, err := m.do(ctx, m.client, token, http.MethodGet, "/api/v1/media/"+url.PathEscape(out.ID), "", nil, nil)
 		if err != nil {
 			return "", err
 		}

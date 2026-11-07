@@ -136,7 +136,7 @@ func (s *server) action(next authed) http.HandlerFunc {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxLoginBody)
-		if err := r.ParseForm(); err != nil || !csrfOK(sess, r.PostFormValue("csrf")) {
+		if err := r.ParseForm(); err != nil || !csrfOK(sess, r.PostForm.Get("csrf")) {
 			s.renderError(w, r, http.StatusForbidden, "expired")
 			return
 		}
@@ -680,7 +680,7 @@ type keepMedia func(m mediaAttachment) (keep bool, alt string)
 
 func formKeep(r *http.Request) keepMedia {
 	return func(m mediaAttachment) (bool, string) {
-		return r.PostFormValue("keep_"+m.ID) != "", strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID))
+		return r.PostForm.Get("keep_"+m.ID) != "", strings.TrimSpace(r.PostForm.Get("keep_alt_" + m.ID))
 	}
 }
 
@@ -736,22 +736,22 @@ func (s *server) saveEdit(ctx context.Context, sess session, keep keepMedia, old
 }
 
 func (r *composeForm) load(req *http.Request) {
-	r.Text = strings.TrimSpace(req.PostFormValue("text"))
-	r.CW = strings.TrimSpace(req.PostFormValue("cw"))
-	r.Visibility = req.PostFormValue("visibility")
-	r.Language = req.PostFormValue("language")
-	r.Reply = strings.TrimSpace(req.PostFormValue("reply"))
-	r.When = req.PostFormValue("when")
-	r.Timezone = req.PostFormValue("timezone")
-	r.Plain = req.PostFormValue("plain") != ""
-	r.LocalOnly = req.PostFormValue("local_only") != ""
-	r.ExpiresIn, _ = strconv.Atoi(req.PostFormValue("expires_in"))
-	r.Frequency = req.PostFormValue("frequency")
-	r.Count, _ = strconv.Atoi(req.PostFormValue("count"))
-	r.Nonce = req.PostFormValue("nonce")
-	r.Edit = req.PostFormValue("edit_id")
-	r.Sensitive = req.PostFormValue("sensitive") != ""
-	r.Scope = req.PostFormValue("scope")
+	r.Text = strings.TrimSpace(req.PostForm.Get("text"))
+	r.CW = strings.TrimSpace(req.PostForm.Get("cw"))
+	r.Visibility = req.PostForm.Get("visibility")
+	r.Language = req.PostForm.Get("language")
+	r.Reply = strings.TrimSpace(req.PostForm.Get("reply"))
+	r.When = req.PostForm.Get("when")
+	r.Timezone = req.PostForm.Get("timezone")
+	r.Plain = req.PostForm.Get("plain") != ""
+	r.LocalOnly = req.PostForm.Get("local_only") != ""
+	r.ExpiresIn, _ = strconv.Atoi(req.PostForm.Get("expires_in"))
+	r.Frequency = req.PostForm.Get("frequency")
+	r.Count, _ = strconv.Atoi(req.PostForm.Get("count"))
+	r.Nonce = req.PostForm.Get("nonce")
+	r.Edit = req.PostForm.Get("edit_id")
+	r.Sensitive = req.PostForm.Get("sensitive") != ""
+	r.Scope = req.PostForm.Get("scope")
 }
 
 type upload struct {
@@ -773,7 +773,7 @@ func collectUploads(r *http.Request, max int) ([]upload, error) {
 		if !slices.ContainsFunc(allowedMedia, func(p string) bool { return strings.HasPrefix(kind, p) }) {
 			return nil, errors.New("bad_media")
 		}
-		out = append(out, upload{Header: files[0], Alt: strings.TrimSpace(r.PostFormValue("alt_" + strconv.Itoa(i)))})
+		out = append(out, upload{Header: files[0], Alt: strings.TrimSpace(r.PostForm.Get("alt_" + strconv.Itoa(i)))})
 	}
 	if len(r.MultipartForm.File) > max {
 		return nil, errors.New("too_many_media")
@@ -913,7 +913,7 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			r.MultipartForm.RemoveAll()
 		}
 	}()
-	if !csrfOK(sess, r.PostFormValue("csrf")) {
+	if !csrfOK(sess, r.PostForm.Get("csrf")) {
 		s.renderError(w, r, http.StatusForbidden, "expired")
 		return
 	}
@@ -956,8 +956,8 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, m := range old.Media {
-			if r.PostFormValue("keep_"+m.ID) != "" {
-				form.Kept = append(form.Kept, keptMedia{ID: m.ID, Type: m.Type, Alt: strings.TrimSpace(r.PostFormValue("keep_alt_" + m.ID))})
+			if r.PostForm.Get("keep_"+m.ID) != "" {
+				form.Kept = append(form.Kept, keptMedia{ID: m.ID, Type: m.Type, Alt: strings.TrimSpace(r.PostForm.Get("keep_alt_" + m.ID))})
 			}
 		}
 	}
@@ -1240,7 +1240,7 @@ func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess s
 	back := func(key string) {
 		http.Redirect(w, r, "/post/"+id+"?error="+url.QueryEscape(key), http.StatusSeeOther)
 	}
-	at, err := parseLocal(r.PostFormValue("when"), loc)
+	at, err := parseLocal(r.PostForm.Get("when"), loc)
 	if err != nil {
 		back(errBadDate.Error())
 		return
@@ -1279,7 +1279,7 @@ func (s *server) handleCancel(w http.ResponseWriter, r *http.Request, sess sessi
 		s.renderError(w, r, http.StatusConflict, "account_changed")
 		return
 	}
-	if r.PostFormValue("scope") == "future" {
+	if r.PostForm.Get("scope") == "future" {
 		posts, err := s.api.scheduled(r.Context(), sess.ActToken)
 		if err != nil {
 			s.instanceFailed(w, r, sess, err)
@@ -1414,9 +1414,9 @@ func (s *server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 }
 
 func (s *server) handleSaveSettings(w http.ResponseWriter, r *http.Request, sess session) {
-	st := settings{Timezone: r.PostFormValue("timezone"), Visibility: r.PostFormValue("visibility"),
-		Language: r.PostFormValue("language"), ContentType: "text/plain"}
-	if s.cfg.markdown && r.PostFormValue("markdown") != "" {
+	st := settings{Timezone: r.PostForm.Get("timezone"), Visibility: r.PostForm.Get("visibility"),
+		Language: r.PostForm.Get("language"), ContentType: "text/plain"}
+	if s.cfg.markdown && r.PostForm.Get("markdown") != "" {
 		st.ContentType = "text/markdown"
 	}
 	_, tzErr := time.LoadLocation(st.Timezone)
