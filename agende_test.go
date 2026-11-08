@@ -337,6 +337,17 @@ func mustBeTestDB(t *testing.T, name string) {
 	}
 }
 
+// testRedisDB is the Redis database index the tests flush (AGENDE_TEST_REDIS_DB,
+// default 15). It refuses 0, the index the app uses.
+func testRedisDB(t *testing.T) int {
+	t.Helper()
+	n, err := strconv.Atoi(env("AGENDE_TEST_REDIS_DB", "15"))
+	if err != nil || n < 1 || n > 15 {
+		t.Fatalf("AGENDE_TEST_REDIS_DB must be 1 to 15 (the tests flush it; the app uses 0)")
+	}
+	return n
+}
+
 // testApp needs Postgres and Redis: set AGENDE_TEST_DB_HOST and AGENDE_TEST_REDIS.
 func testApp(t *testing.T) (*fakeMastodon, *httptest.Server, *store) {
 	t.Helper()
@@ -366,7 +377,7 @@ func testApp(t *testing.T) (*fakeMastodon, *httptest.Server, *store) {
 	if _, err := db.pool.Exec(context.Background(), `DELETE FROM delegations`); err != nil {
 		t.Fatal(err)
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
 	rdb.FlushDB(context.Background())
 	tmpl, err := parseTemplates()
 	if err != nil {
@@ -756,7 +767,7 @@ func TestSweepRevokesExpiredOnce(t *testing.T) {
 		t.Skip("AGENDE_TEST_REDIS not set")
 	}
 	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
 	rdb.FlushDB(ctx)
 	bx, _ := newBox(strings.Repeat("k", 32), "t")
 	store := &sessions{rdb: rdb, box: bx}
@@ -815,7 +826,7 @@ func TestFailedRevokeIsRetried(t *testing.T) {
 		t.Skip("AGENDE_TEST_REDIS not set")
 	}
 	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
 	rdb.FlushDB(ctx)
 	bx, _ := newBox(strings.Repeat("k", 32), "t")
 	store := &sessions{rdb: rdb, box: bx}
@@ -841,7 +852,7 @@ func TestSessionFromAnotherKeyIsNoSession(t *testing.T) {
 		t.Skip("AGENDE_TEST_REDIS not set")
 	}
 	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
 	rdb.FlushDB(ctx)
 	a, _ := newBox(strings.Repeat("a", 32), "t")
 	b, _ := newBox(strings.Repeat("b", 32), "t")
@@ -935,7 +946,7 @@ func TestSharedTokenSurvivesOneSession(t *testing.T) {
 		t.Skip("AGENDE_TEST_REDIS not set")
 	}
 	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
 	rdb.FlushDB(ctx)
 	bx, _ := newBox(strings.Repeat("k", 32), "t")
 	store := &sessions{rdb: rdb, box: bx}

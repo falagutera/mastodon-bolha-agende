@@ -15,12 +15,16 @@ with delegation on, the owners' tokens (PostgreSQL, encrypted). Every API call g
 ```sh
 gofmt -l .            # must print nothing
 go vet ./...
-go test ./...         # without AGENDE_TEST_DB_HOST and AGENDE_TEST_REDIS the app tests skip themselves
+go test ./...         # without AGENDE_TEST_DB_HOST and AGENDE_TEST_REDIS ~48 tests skip themselves
 ```
 
+The skipped tests are most of the rule tests below, so a green run without services proves little:
+the run with PostgreSQL and Redis is the one that counts.
+
 With PostgreSQL and Redis (what CI runs). The tests **delete every delegation and `FLUSHDB` the
-Redis they reach**, so use throwaway containers on free ports and chain with `&&`. They refuse a
-database whose name does not end in `_test` (`mustBeTestDB` in `agende_test.go`). No psql needed on
+Redis database they reach**, so use throwaway containers on free ports and chain with `&&`. They
+refuse a PostgreSQL database whose name does not end in `_test` (`mustBeTestDB`) and Redis database 0,
+the one the app uses (`testRedisDB`, default index 15), both in `agende_test.go`. No psql needed on
 the host:
 
 ```sh
@@ -37,7 +41,8 @@ docker rm -f agende-pg-$P agende-redis-$R
 
 The tests connect as the app role `agende` (password `agende`), so they only have the grants of
 `schema.sql`: a query the app user may not run fails here too. Test variables: `AGENDE_TEST_DB_HOST`,
-`AGENDE_TEST_DB_PORT` (5432), `AGENDE_TEST_DB_NAME` (agende_test), `AGENDE_TEST_REDIS` (host:port).
+`AGENDE_TEST_DB_PORT` (5432), `AGENDE_TEST_DB_NAME` (agende_test), `AGENDE_TEST_REDIS` (host:port),
+`AGENDE_TEST_REDIS_DB` (15; 1 to 15).
 
 To look at a rendered page, use a test: `b.do(http.MethodGet, "/queue", "", nil)` returns status,
 `Location` and the HTML body; write the body to a file while you work on it.
@@ -62,9 +67,19 @@ To look at a rendered page, use a test: `b.do(http.MethodGet, "/queue", "", nil)
 | `templates/`, `assets/` | HTML templates; `agende.js` (draft in localStorage, preview, dates), CSS, fonts |
 | `schema.sql` | tables and the app user's grants (no DDL, audit log insert-only) |
 
-Tests: `agende_test.go` (`fakeMastodon`, the instance with accounts `ana`/`bia`/`cai`; `testApp`;
-`browser` drives sign-in and forms), `delegation_test.go`, `audit_test.go`, `edit_later_test.go`,
+Tests: `agende_test.go` (`fakeMastodon`, the fake instance: `b.login("ana"|"bia"|"cai")` are login
+codes that sign in as accounts 1–3, `@user1`…`@user3`; `user4` is suspended, `user9@other.social` is
+remote; `testApp`; `browser` drives sign-in and forms), `delegation_test.go`, `audit_test.go`, `edit_later_test.go`,
 `bulk_cancel_test.go`, `changelog_test.go`, `templates_test.go`.
+
+Test helpers: `b.do(method, path, contentType, body)` → (status, `Location`, body); `b.post(path, form)`
+(`delegation_test.go`, fills `csrf`); `b.compose(fields, files)`; `scheduleOne`; `baseFields()`;
+`future(days)`; `marker(t)` and `b.audit(query)` (`audit_test.go`); the fake's posts are in
+`f.scheduled[id]`, read them under `f.mu`.
+
+Audit rows persist across tests (the log is insert-only) and the fake's post ids restart at 100. A
+test that reads `/audit` sets `f.next` to something unique and puts `marker(t)` in the text, as
+`audit_test.go` does, or it matches rows of another test.
 
 ## Rules that must hold
 
@@ -107,16 +122,20 @@ Tests: `agende_test.go` (`fakeMastodon`, the instance with accounts `ana`/`bia`/
 
 0. **Check it is not there already.** Grep `i18n.go` (both languages) and `templates/` for the
    label; read the README feature list.
-1. Handler in `server.go` behind `page` (GET) or `action` (POST); call the instance through
-   `mastodon.go` with `sess.ActToken`; check `sameTarget` on forms that post as an account.
-2. A new post action writes an audit entry (`s.db.audit` / `auditResult`) and a sentence in `auditLines`.
+1. Prefer a field on an existing action (e.g. the compose form, `handleCreate`): it keeps the guards,
+   the limits and the audit entry. A new route needs its own guards: `page` (GET) or `action` (POST),
+   `sameTarget` on forms that post as an account, and calls through `mastodon.go` with `sess.ActToken`.
+2. Reusing an `action*` constant (`store.go`) needs no new sentence. A new kind of action writes an
+   audit entry (`s.db.audit` / `auditResult`), gets a sentence in `auditLines` (`audit.go`) and texts.
 3. Markup in `templates/`, behaviour in `assets/agende.js`, texts in both languages.
 4. A test with `testApp` and `browser`, including the account that must be refused.
 5. `gofmt`, `go vet`, the tests with PostgreSQL and Redis.
 
 ## Releasing
 
-- `VERSION` holds `X.Y.Z`; CI adds the build number (`X.Y.Z-BUILD`). Bump it for user-visible changes.
+- `VERSION` holds `X.Y.Z`; CI adds the build number (`X.Y.Z-BUILD`). Bump it for user-visible changes:
+  a fix is a patch, a new button or option a minor (e.g. 0.4.1 → 0.5.0). Docs- or tests-only changes don't bump.
+- Work not released yet can go under `## Unreleased` at the top of `CHANGELOG.md`; the release notes skip it.
 - Every version needs its `CHANGELOG.md` entry (`TestChangelogHasVersion`); it is also the
   `/release-notes` page, so write it for the people who use the site.
 - A change to `schema.sql` says so in the changelog: installs must apply it again as the owner.

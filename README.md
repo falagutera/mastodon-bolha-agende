@@ -91,7 +91,7 @@ These come from Mastodon: at least 5 minutes ahead, 25 scheduled posts per day (
 go test ./...
 ```
 
-Tests that need PostgreSQL and Redis skip themselves unless `AGENDE_TEST_DB_HOST` and `AGENDE_TEST_REDIS` are set, see `.gitlab-ci.yml`.
+Tests that need PostgreSQL and Redis skip themselves unless `AGENDE_TEST_DB_HOST` and `AGENDE_TEST_REDIS` are set, see `.gitlab-ci.yml`. They delete rows and flush a Redis database, so they refuse a PostgreSQL database whose name doesn't end in `_test` and Redis database 0 (they use 15 unless `AGENDE_TEST_REDIS_DB` says otherwise).
 
 Before changing the code, with or without a coding agent, read [AGENTS.md](AGENTS.md): the commands to run the tests against throwaway PostgreSQL and Redis containers, a map of the files, and the rules a change must keep (one instance only, each account acts only on its own posts, delegation checks, who sees the activity log, no inline script, both languages), each with the test that guards it.
 

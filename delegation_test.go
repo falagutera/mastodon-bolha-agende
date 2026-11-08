@@ -447,7 +447,7 @@ func TestDeadDelegateStopsActing(t *testing.T) {
 	f.mu.Lock()
 	f.dead["token-ana"] = true
 	f.mu.Unlock()
-	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("AGENDE_TEST_REDIS")})
+	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("AGENDE_TEST_REDIS"), DB: testRedisDB(t)})
 	keys, _ := rdb.Keys(context.Background(), aliveKey+"*").Result()
 	if len(keys) == 0 {
 		t.Fatal("the check is not cached")
