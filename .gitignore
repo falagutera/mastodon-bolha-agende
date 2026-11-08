@@ -2,3 +2,4 @@
 postgres.env
 data/
 agende
+.claude/worktrees/

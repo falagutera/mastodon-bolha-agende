@@ -24,8 +24,8 @@ test:
   before_script:
     - apk add --no-cache postgresql17-client
     - until pg_isready -h postgres -U postgres; do sleep 1; done
-    - psql -h postgres -U postgres -c "CREATE ROLE agende LOGIN PASSWORD 'agende'" -c "CREATE DATABASE agende"
-    - psql -h postgres -U postgres -d agende -f schema.sql
+    - psql -h postgres -U postgres -c "CREATE ROLE agende LOGIN PASSWORD 'agende'" -c "CREATE DATABASE agende_test"
+    - psql -h postgres -U postgres -d agende_test -f schema.sql
   script:
     - go vet ./...
     - go test -p 1 ./...

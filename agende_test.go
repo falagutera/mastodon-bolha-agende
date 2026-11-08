@@ -328,18 +328,29 @@ func newFakeMastodon() (*fakeMastodon, *httptest.Server) {
 	}))
 }
 
-// testApp needs Postgres and Redis: set AGENDE_TEST_DATABASE and AGENDE_TEST_REDIS.
+// mustBeTestDB refuses a database whose name does not end in _test: the tests
+// delete every delegation and flush Redis, so they must never reach a real install.
+func mustBeTestDB(t *testing.T, name string) {
+	t.Helper()
+	if !strings.HasSuffix(name, "_test") {
+		t.Fatalf("refusing database %q: the tests delete its rows, use a name ending in _test", name)
+	}
+}
+
+// testApp needs Postgres and Redis: set AGENDE_TEST_DB_HOST and AGENDE_TEST_REDIS.
 func testApp(t *testing.T) (*fakeMastodon, *httptest.Server, *store) {
 	t.Helper()
 	dsn, addr := os.Getenv("AGENDE_TEST_DB_HOST"), os.Getenv("AGENDE_TEST_REDIS")
 	if dsn == "" || addr == "" {
 		t.Skip("AGENDE_TEST_DB_HOST and AGENDE_TEST_REDIS not set")
 	}
+	dbName := env("AGENDE_TEST_DB_NAME", "agende_test")
+	mustBeTestDB(t, dbName)
 	f, inst := newFakeMastodon()
 	t.Cleanup(inst.Close)
 	cfg := config{instance: inst.URL, domain: "example.social", baseURL: "https://agende.example.social", clientID: "id", clientSecret: "secret",
 		lang: "en", timezone: "UTC", markdown: true, localOnly: true, expiring: true, maxUpload: 8 << 20,
-		dbHost: dsn, dbPort: env("AGENDE_TEST_DB_PORT", "5432"), dbUser: "agende", dbPassword: "agende", dbName: "agende", dbSSLMode: "disable",
+		dbHost: dsn, dbPort: env("AGENDE_TEST_DB_PORT", "5432"), dbUser: "agende", dbPassword: "agende", dbName: dbName, dbSSLMode: "disable",
 		delegationClientID: "did", delegationClientSecret: "dsecret", delegationKey: strings.Repeat("d", 32)}
 	key := strings.Repeat("k", 32)
 	auditBox, _ := newBox(key, "audit")
