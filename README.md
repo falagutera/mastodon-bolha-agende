@@ -11,6 +11,66 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 - Activity log page: who scheduled, moved, edited or canceled what, on which account, with filters by account, action and period
 - Optional delegation: an account lets another account of the instance schedule posts as it
 
+## Testing and security
+
+agende holds tokens that can post as people, so it is tested against what would hurt: acting on another account's posts, a delegation that outlives its owner's consent, and tokens or post text kept in clear. What is done today (2026-11-08):
+
+**Every pipeline.** GitLab CI ([`.gitlab-ci.yml`](.gitlab-ci.yml), plus the shared security stage from `open/gcn/ci-templates`, file `security.yml`). The test job runs on every pipeline; the security stage runs on every merge request and every push to `main`; the image is built and published only from `main`.
+
+- Blocking (the pipeline fails and no image is published):
+  - `go vet`, a `gofmt` check, and the full test suite against real PostgreSQL 17 and Redis 7.4 services (connected as the app's own role, so the grants in `schema.sql` are tested too);
+  - `govulncheck`: known vulnerabilities in Go code paths agende actually reaches (in the test job and in the security stage);
+  - `gitleaks`: secrets committed to the repository;
+  - `trivy`: critical vulnerabilities that have a fix, secrets and misconfigurations in the repository.
+- Informative (reported, not blocking): `semgrep`, `gosec`, `hadolint` (Dockerfile), `yamllint`, and `poutine` (security of the CI pipeline itself). The `gosec` findings that are false positives are annotated in the code with the reason.
+
+**The test suite.** 68 tests (`go test -list`). Most drive the real HTTP handlers through sign-in and forms against a fake Mastodon instance, PostgreSQL and Redis; without those services about 48 of them skip, so CI is where they all run. They cover:
+
+- sign-in and forms: OAuth state works once and uses PKCE, CSRF token and same-origin checks, a resent form does nothing, a session sealed with another key is no session, expired tokens are revoked once and a failed revoke is retried;
+- ownership: an account can't change, edit or cancel another account's posts, a form acts only on the account it was shown for (another tab may have switched it);
+- delegation: only the owner grants it, with the instance's sign-in, and the account that authorized must be the owner; local accounts only, no chains, at most 10 (checked again at the callback); every request checks the database, revoking ends access, the stored token only works for its pair of accounts, a delegate whose own token died stops acting;
+- the activity log: who sees which rows (filters never widen it), sentences, filters and pages;
+- Mastodon's limits before anything is sent: dates, the daily and total limits, series that would go over them send nothing, daylight saving and month ends in series, one upload per account at a time (and at most 3 at once, counted in memory);
+- edits and bulk cancel: an edit creates the new post before canceling the old one and keeps the original if it fails, later posts with the same text keep their own dates and files;
+- pages: no inline script or style (the CSP allows none), the Markdown preview escapes HTML, every text in both languages, the release notes.
+
+**Reviews.** A [Strix](https://github.com/usestrix/strix) review found that uploads over 1 MiB left temporary files on the server; fixed in 0.3.1. In 0.4.1 the findings of the updated linters (`gosec`, `semgrep`, `hadolint`) were fixed or annotated. These are what we checked; they are not an outside audit and don't certify anything.
+
+**Reporting a vulnerability.** Write to contato@gutocarvalho.net. Please don't open a public issue for it.
+
+## Architecture
+
+**Why it exists.** Mastodon can schedule posts (`scheduled_at` in its API), but its web interface doesn't offer it. agende is a page for that: write, pick a date, see the queue and a calendar. It doesn't publish anything itself: the instance keeps the scheduled posts and publishes them, so nothing is lost if agende is down at the time.
+
+**In plain words.**
+
+1. the person signs in with their account on the instance (OAuth, PKCE);
+2. they write a post and pick a date; agende checks Mastodon's limits and sends it to the instance as a scheduled post, with the person's own token;
+3. the queue and the calendar are read from the instance each time; changing the date, editing or canceling are calls to the instance too;
+4. each action is written to the activity log.
+
+**Components.**
+
+```
+          browser
+             |
+        agende (this app)
+         |      |      \
+         |      |       +--> Redis        sessions (8 h, token encrypted), sign-in state,
+         |      |                         used form nonces, short locks
+         |      +----------> PostgreSQL   settings per account, activity log (excerpts
+         |                                encrypted), delegations (owners' tokens encrypted)
+         |
+         +--> the Mastodon instance (one only, AGENDE_INSTANCE)
+               - OAuth sign-in; a second OAuth app for delegation
+               - the scheduled posts and their media live here and are published from here
+```
+
+- Tokens and log excerpts are encrypted with AES-GCM, each bound to its purpose and owner. Redis never holds a token in clear.
+- Every call goes to the one configured instance; a reply is accepted only as an id or a URL of that instance, and agende never fetches a URL someone typed.
+- An expired session's token is revoked by a sweep, retried for a week if the instance is down.
+- See *How it stores data* below for what is kept and for how long.
+
 ## Install
 
 1. Register the OAuth application:
