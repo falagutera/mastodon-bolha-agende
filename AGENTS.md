@@ -143,7 +143,7 @@ test that reads `/audit` sets `f.next` to something unique and puts `marker(t)` 
 
 ## Security checks
 
-CI runs vet, the tests against PostgreSQL 17 and Redis 7.4, govulncheck and the shared scanners
+CI runs vet, `gofmt -l`, the tests against PostgreSQL 17 and Redis 7.4, govulncheck and the shared scanners
 (gitleaks, gosec, semgrep, trivy, hadolint, shellcheck, yamllint, poutine). Before a release that
 touches sign-in, delegation, the audit log or templates, also review the change for authorization:
 which account the action runs as, and who can see the result. Scanners do not see that.

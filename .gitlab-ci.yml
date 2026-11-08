@@ -25,9 +25,10 @@ test:
     - apk add --no-cache postgresql17-client
     - until pg_isready -h postgres -U postgres; do sleep 1; done
     - psql -h postgres -U postgres -c "CREATE ROLE agende LOGIN PASSWORD 'agende'" -c "CREATE DATABASE agende_test"
-    - psql -h postgres -U postgres -d agende_test -f schema.sql
+    - psql -h postgres -U postgres -d agende_test -v ON_ERROR_STOP=1 -f schema.sql
   script:
     - go vet ./...
+    - test -z "$(gofmt -l .)"
     - go test -p 1 ./...
     - go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
     - "$(go env GOPATH)/bin/govulncheck ./..."

@@ -896,7 +896,7 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	r = r.WithContext(ctx)
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	if err := r.ParseMultipartForm(formMemory); err != nil {
+	if err := r.ParseMultipartForm(formMemory); err != nil { // #nosec G120 -- body capped by MaxBytesReader just above
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			s.renderError(w, r, http.StatusRequestEntityTooLarge, "too_large")
@@ -985,7 +985,7 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !fresh {
-		http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther)
+		http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther) // #nosec G710 -- local path /result/<hex hash>, never a host
 		return
 	}
 	if form.Edit != "" {
@@ -1055,7 +1055,7 @@ func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.saveResult(r.Context(), sess, form.Nonce, resultPage{Error: v.Error, Results: v.Results})
-	http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther)
+	http.Redirect(w, r, s.resultPath(sess, form.Nonce), http.StatusSeeOther) // #nosec G710 -- local path /result/<hex hash>, never a host
 }
 
 // editLater applies an edit to the later posts with the same text. Each keeps its
@@ -1088,7 +1088,7 @@ func (s *server) editLater(w http.ResponseWriter, r *http.Request, sess session,
 		return
 	}
 	s.saveResult(r.Context(), sess, nonce, resultPage{Error: v.T["form_later_partial"], Results: v.Results})
-	http.Redirect(w, r, s.resultPath(sess, nonce), http.StatusSeeOther)
+	http.Redirect(w, r, s.resultPath(sess, nonce), http.StatusSeeOther) // #nosec G710 -- local path /result/<hex hash>, never a host
 }
 
 type resultPage struct {
@@ -1238,7 +1238,7 @@ func (s *server) handleReschedule(w http.ResponseWriter, r *http.Request, sess s
 		return
 	}
 	back := func(key string) {
-		http.Redirect(w, r, "/post/"+id+"?error="+url.QueryEscape(key), http.StatusSeeOther)
+		http.Redirect(w, r, "/post/"+id+"?error="+url.QueryEscape(key), http.StatusSeeOther) // #nosec G710 -- fixed /post/ prefix, id is one path segment: always this site
 	}
 	at, err := parseLocal(r.PostForm.Get("when"), loc)
 	if err != nil {
