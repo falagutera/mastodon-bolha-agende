@@ -1,6 +1,10 @@
 {{template "head" .}}
-<h1>{{.T.post_title}}</h1>
-<p class="when">{{.Post.When}} ({{.Settings.Timezone}})</p>
+<section class="hero">
+  <p class="kicker">{{.T.kicker}}</p>
+  <h1>{{.T.post_title}}</h1>
+  <span class="stamp"><i></i>{{.Post.When}} ({{.Settings.Timezone}})</span>
+</section>
+<div class="card prose postbody">
 {{if .Post.CW}}<p><strong>{{.Post.CW}}</strong></p>{{end}}
 <p class="text full">{{.Post.Text}}</p>
 <p class="tags">
@@ -10,19 +14,20 @@
   {{if .Post.Expires}}<span>{{.T.expires}}</span>{{end}}
   {{if .Post.Markdown}}<span>{{.T.markdown}}</span>{{end}}
 </p>
+</div>
 <form method="post" action="/post/{{.Post.ID}}/date" class="compose">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="as" value="{{.TargetID}}">
   <label>{{.T.change_date}} <input type="datetime-local" name="when" value="{{.Post.WhenInput}}" required></label>
-  <p><button type="submit" class="button">{{.T.save}}</button></p>
+  <p><button type="submit">{{.T.save}}</button></p>
 </form>
-<p class="links">{{if .Post.Editable}}<a href="/post/{{.Post.ID}}/edit">{{.T.edit}}</a> {{else}}<span class="note">{{.T.edit_blocked}}</span> {{end}}<a href="/new?from={{.Post.ID}}">{{.T.duplicate}}</a></p>
-<form method="post" action="/post/{{.Post.ID}}/cancel" class="danger">
+<p class="links">{{if .Post.Editable}}<a class="btn secondary" href="/post/{{.Post.ID}}/edit">{{.T.edit}}</a> {{else}}<span class="note">{{.T.edit_blocked}}</span> {{end}}<a class="btn secondary" href="/new?from={{.Post.ID}}">{{.T.duplicate}}</a></p>
+<form method="post" action="/post/{{.Post.ID}}/cancel" class="dangerzone">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="as" value="{{.TargetID}}">
 {{if .SameText}}  <label class="check"><input type="radio" name="scope" value="one" checked> {{.T.cancel_scope_one}}</label>
   <label class="check"><input type="radio" name="scope" value="future"> {{printf .T.cancel_scope_future .SameText}}</label>
 {{end}}  <p class="note">{{.T.cancel_confirm}}</p>
-  <button type="submit" class="button">{{.T.cancel}}</button>
+  <button type="submit" class="danger">{{.T.cancel}}</button>
 </form>
 {{template "foot" .}}

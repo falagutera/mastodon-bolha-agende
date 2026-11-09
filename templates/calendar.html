@@ -1,15 +1,18 @@
 {{template "head" .}}
-<h1>{{.Heading}}</h1>
+<section class="hero">
+  <p class="kicker">{{.T.kicker}}</p>
+  <h1>{{.Heading}}</h1>
+  <span class="stamp"><i></i>{{.T.timezone_note}} {{.Settings.Timezone}}</span>
+</section>
 <div class="calbar">
-  <a href="/calendar?view={{.View}}&date={{.Prev}}">{{.T.cal_prev}}</a>
-  <a href="/calendar?view={{.View}}&date={{.Next}}">{{.T.cal_next}}</a>
+  <a class="pilltab" href="/calendar?view={{.View}}&date={{.Prev}}">{{.T.cal_prev}}</a>
+  <a class="pilltab" href="/calendar?view={{.View}}&date={{.Next}}">{{.T.cal_next}}</a>
   <span class="views">
-    <a href="/calendar?view=month"{{if eq .View "month"}} class="on"{{end}}>{{.T.cal_month}}</a>
-    <a href="/calendar?view=week"{{if eq .View "week"}} class="on"{{end}}>{{.T.cal_week}}</a>
+    <a class="pilltab" href="/calendar?view=month"{{if eq .View "month"}} aria-current="true"{{end}}>{{.T.cal_month}}</a>
+    <a class="pilltab" href="/calendar?view=week"{{if eq .View "week"}} aria-current="true"{{end}}>{{.T.cal_week}}</a>
   </span>
 </div>
-<p class="note">{{.T.timezone_note}} {{.Settings.Timezone}}</p>
-<table class="cal cal-{{.View}}">
+<div class="card calcard"><table class="cal cal-{{.View}}">
   <thead><tr>{{range .Weekdays}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
   <tbody>
   {{range .Calendar.Weeks}}<tr>{{range .}}
@@ -19,5 +22,5 @@
     </td>{{end}}
   </tr>{{end}}
   </tbody>
-</table>
+</table></div>
 {{template "foot" .}}

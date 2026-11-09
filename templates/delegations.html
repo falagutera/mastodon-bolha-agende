@@ -1,9 +1,12 @@
 {{template "head" .}}
-<h1>{{.T.delegations_title}}</h1>
-<p class="lede">{{printf .T.delegations_lede .Acct}}</p>
+<section class="hero">
+  <p class="kicker">{{.T.kicker}}</p>
+  <h1>{{.T.delegations_title}}</h1>
+  <p class="lede">{{printf .T.delegations_lede .Acct}}</p>
+</section>
 
-<h2>{{.T.granted_title}}</h2>
-{{if .Granted}}<ul class="delegations">
+<div class="cat"><h2>{{.T.granted_title}}</h2><div class="rule"></div></div>
+{{if .Granted}}<ul class="delegations card">
 {{range .Granted}}  <li>
     <span>@{{.DelegateAcct}}</span>
     <form method="post" action="/delegations/revoke">
@@ -19,11 +22,11 @@
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>{{.T.delegate_to}} <input type="text" name="handle" required maxlength="80" autocomplete="off" placeholder="@{{.T.delegate_placeholder}}"></label>
   <p class="note">{{.T.delegate_note}}</p>
-  <p><button type="submit" class="button">{{.T.delegate_button}}</button></p>
+  <p><button type="submit">{{.T.delegate_button}}</button></p>
 </form>
 {{end}}
-<h2>{{.T.received_title}}</h2>
-{{if .Received}}<ul class="delegations">
+<div class="cat"><h2>{{.T.received_title}}</h2><div class="rule"></div></div>
+{{if .Received}}<ul class="delegations card">
 {{range .Received}}  <li>
     <span>@{{.OwnerAcct}}</span>
     <form method="post" action="/delegations/leave">

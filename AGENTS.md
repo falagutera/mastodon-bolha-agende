@@ -64,7 +64,7 @@ To look at a rendered page, use a test: `b.do(http.MethodGet, "/queue", "", nil)
 | `calendar.go` | week and month views |
 | `i18n.go` | every text, in `en` and `pt-BR` |
 | `version.go`, `internal/relnotes` | version string, release notes from `CHANGELOG.md` |
-| `templates/`, `assets/` | HTML templates; `agende.js` (draft in localStorage, preview, dates), CSS, fonts |
+| `templates/`, `assets/` | HTML templates; `agende.js` (draft in localStorage, preview, dates); `style.css` + `VISUAL.md` are a copy of `open/gcn/ui` (`sync.sh`, `check.sh`; never edited here, `TestPagesFollowTheLook`), `agende.css` holds only what is agende's own, on the tokens, no web fonts |
 | `schema.sql` | tables and the app user's grants (no DDL, audit log insert-only) |
 
 Tests: `agende_test.go` (`fakeMastodon`, the fake instance: `b.login("ana"|"bia"|"cai")` are login

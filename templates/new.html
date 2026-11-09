@@ -1,6 +1,9 @@
 {{template "head" .}}
-<h1>{{if .Form.Edit}}{{.T.edit_title}}{{else}}{{.T.new_title}}{{end}}</h1>
-<form method="post" action="/new" enctype="multipart/form-data" class="compose" id="compose" data-csrf="{{.CSRF}}" data-max="{{.Limits.MaxCharacters}}">
+<section class="hero">
+  <p class="kicker">{{.T.kicker}}</p>
+  <h1>{{if .Form.Edit}}{{.T.edit_title}}{{else}}{{.T.new_title}}{{end}}</h1>
+</section>
+<form method="post" action="/new" enctype="multipart/form-data" class="compose card form" id="compose" data-csrf="{{.CSRF}}" data-max="{{.Limits.MaxCharacters}}">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="as" value="{{.TargetID}}">
   <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
@@ -71,6 +74,6 @@
     <label>{{.T.times}} <input type="number" name="count" id="count" min="2" max="{{.MaxSeries}}" value="{{if .Form.Count}}{{.Form.Count}}{{else}}6{{end}}"></label>
   </div>
   <section id="dates-box" hidden><h2>{{.T.dates_preview}}</h2><ol id="dates"></ol></section>
-{{end}}  <p><button type="submit" class="button">{{if .Form.Edit}}{{.T.save}}{{else}}{{.T.schedule}}{{end}}</button></p>
+{{end}}  <p><button type="submit">{{if .Form.Edit}}{{.T.save}}{{else}}{{.T.schedule}}{{end}}</button></p>
 </form>
 {{template "foot" .}}

@@ -3,6 +3,13 @@
 All notable changes to agende. Versions follow [SemVer](https://semver.org/); images are
 published as `registry.gutocarvalho.net/images/agende:<version>-<build>`.
 
+
+## 0.5.0 — 2026-11-09
+
+- The bolha.io look: every page follows the shared stylesheet of the bolha apps, now in light and dark (it follows your system), with system fonts instead of the bundled web fonts.
+- The sections (queue, calendar, new post, settings, log, delegations), the calendar views and paging are pills; the one you are on is highlighted. Release notes and sign out moved to the top right.
+- The queue, the calendar, the log and the delegations sit in cards; today stands out in the calendar, and canceling a post sits in its own red box. Behavior is unchanged.
+
 ## 0.4.1 — 2026-11-07
 
 Hardening from the updated linters.

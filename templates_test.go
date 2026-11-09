@@ -64,3 +64,31 @@ func TestTextsInBothLanguages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The pages follow the bolha.io look (open/gcn/ui VISUAL.md): family, brand bubble, hero
+// kicker, the key word in the accent and the standard footer; no web fonts or artefatos.css.
+func TestPagesFollowTheLook(t *testing.T) {
+	raw := map[string]string{}
+	for _, name := range []string{"layout.html", "index.html"} {
+		b, err := fs.ReadFile(templateFS, "templates/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw[name] = string(b)
+	}
+	for _, want := range []string{`data-family="bolha"`, `class="bubble"`, `/assets/style.css`, `bolha.io</a>`} {
+		if !regexp.MustCompile(regexp.QuoteMeta(want)).MatchString(raw["layout.html"]) {
+			t.Errorf("layout: missing %s", want)
+		}
+	}
+	for _, want := range []string{`class="kicker"`, `<em>`} {
+		if !regexp.MustCompile(regexp.QuoteMeta(want)).MatchString(raw["index.html"]) {
+			t.Errorf("index: missing %s", want)
+		}
+	}
+	for _, gone := range []string{"assets/artefatos.css", "assets/fonts"} {
+		if _, err := fs.Stat(assetFS, gone); err == nil {
+			t.Errorf("%s is back: the look uses style.css and system fonts", gone)
+		}
+	}
+}

@@ -1,6 +1,9 @@
 {{template "head" .}}
-<h1>{{.T.settings_title}}</h1>
-<form method="post" action="/settings" class="compose">
+<section class="hero">
+  <p class="kicker">{{.T.kicker}}</p>
+  <h1>{{.T.settings_title}}</h1>
+</section>
+<form method="post" action="/settings" class="compose card form">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <label>{{.T.timezone}} <select name="timezone" required>{{range .Zones}}<option value="{{.Name}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   <label>{{.T.default_visibility}}
@@ -13,6 +16,6 @@
   </label>
   <label>{{.T.default_language}} <input type="text" name="language" value="{{.Settings.Language}}" maxlength="3" required pattern="[a-z]{2,3}"></label>
 {{if .Markdown}}  <label class="check"><input type="checkbox" name="markdown"{{if eq .Settings.ContentType "text/markdown"}} checked{{end}}> {{.T.default_markdown}}</label>
-{{end}}  <p><button type="submit" class="button">{{.T.save}}</button></p>
+{{end}}  <p><button type="submit">{{.T.save}}</button></p>
 </form>
 {{template "foot" .}}

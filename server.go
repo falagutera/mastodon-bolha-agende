@@ -219,7 +219,7 @@ func (s *server) routes() http.Handler {
 // csp is the page policy. Only form-action varies: the delegations page sends a
 // form that ends at the instance.
 func csp(formAction string) string {
-	return "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action " +
+	return "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action " +
 		formAction + "; frame-ancestors 'none'"
 }
 

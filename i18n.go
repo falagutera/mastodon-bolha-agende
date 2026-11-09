@@ -73,6 +73,7 @@ var translations = map[string]map[string]string{
 		"audit_failed":     "Failed", "audit_unknown": "Result unknown", "audit_published_now": "Published right away", "audit_in_progress": "In progress",
 		"audit_interrupted": "Interrupted, result unknown", "audit_series_partial": "%d scheduled",
 		"source": "Source code", "credit": "Based on mastodon-post-scheduler",
+		"kicker": "bolha.io · agende", "part_of": "part of", "nav": "Sections", "hero_a": "Schedule your", "hero_b": "posts",
 	},
 	"pt-BR": {
 		"lang": "pt-BR", "nav_notes": "Novidades", "notes_title": "Novidades", "notes_lede": "O que mudou em cada versão.", "language": "Idioma", "title": "Agende",
@@ -138,6 +139,7 @@ var translations = map[string]map[string]string{
 		"audit_failed":     "Falhou", "audit_unknown": "Resultado desconhecido", "audit_published_now": "Publicado na hora", "audit_in_progress": "Em andamento",
 		"audit_interrupted": "Interrompido, resultado desconhecido", "audit_series_partial": "%d agendados",
 		"source": "Código-fonte", "credit": "Baseado no mastodon-post-scheduler",
+		"kicker": "bolha.io · agende", "part_of": "parte da", "nav": "Seções", "hero_a": "Agende seus", "hero_b": "posts",
 	},
 }
 
