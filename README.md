@@ -11,6 +11,19 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 - Activity log page: who scheduled, moved, edited or canceled what, on which account, with filters by account, action and period
 - Optional delegation: an account lets another account of the instance schedule posts as it
 
+## Contents
+
+- [Screenshot](#screenshot)
+- [Testing and security](#testing-and-security)
+- [Architecture](#architecture)
+- [Install](#install)
+- [Versions](#versions)
+- [How it stores data](#how-it-stores-data)
+- [Delegation](#delegation)
+- [Limits](#limits)
+- [Development](#development)
+- [License](#license)
+
 ## Screenshot
 
 [![agende monthly calendar](docs/screenshot-calendar.png)](https://agende.bolha.us)
