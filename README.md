@@ -11,6 +11,14 @@ Schedule posts on one Mastodon instance. People sign in with OAuth, write a post
 - Activity log page: who scheduled, moved, edited or canceled what, on which account, with filters by account, action and period
 - Optional delegation: an account lets another account of the instance schedule posts as it
 
+## Screenshot
+
+[![agende monthly calendar](docs/screenshot-calendar.png)](https://agende.bolha.us)
+[![agende new-post composer](docs/screenshot-new-post.png)](https://agende.bolha.us)
+
+*A live instance at [agende.bolha.us](https://agende.bolha.us): the monthly calendar and the
+composer, PT/EN.*
+
 ## Testing and security
 
 agende holds tokens that can post as people, so it is tested against what would hurt: acting on another account's posts, a delegation that outlives its owner's consent, and tokens or post text kept in clear. What is done today (2026-11-08):
